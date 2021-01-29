@@ -119,7 +119,7 @@ function scan_netrc {
   local found_password=''
   for i in $netrc
   do
-  # echo "[k: $key s: $state] $i"
+  # echo "[k: $key s: $state] $i" >&2
   case $i in
     machine)
       key=machine
@@ -200,6 +200,7 @@ function password_for {
 function get_token {
   if [[ -z "$UCR_TOKEN" ]]; then
     local psd=$(password_for $UCR_HOST $UCR_USER)
+    # echo "X: $psd" >&2
     # Murano doesn't accept basic auth…
     local req=$(jq -n --arg psd "$psd" --arg user "$UCR_USER" '{"email": $user, "password": $psd}')
     export UCR_TOKEN=$(curl -s https://${UCR_HOST}/api:1/token/ -H 'Content-Type: application/json' -d "$req" | jq -r .token)
@@ -231,6 +232,10 @@ function ucr_opts {
   for k in ${(@k)ucr_opts}; do
     echo "$k → ${ucr_opts[$k]}"
   done
+}
+function ucr_token {
+  get_token
+  echo $UCR_TOKEN
 }
 
 function ucr_dump_script {
@@ -478,6 +483,16 @@ function ucr_jmq_todo {
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req" | jq -r '.issues[] | [.key, .fields.summary] | @tsv'
+}
+
+function ucr_jmq_open {
+  local key=${1:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs UCR_PROJECTS "[A-Z,]+"
+    key=${UCR_PROJECTS%%,*}-$key
+  fi
+
+  open -a safari https://exosite.atlassian.net/browse/${(U)key}
 }
 
 ##############################################################################

@@ -11,16 +11,19 @@ argv0=${${0:t}:r}
 # This loads only the key=values and does not execute any code that might be included.
 function load_config {
   if [[ -f "$1" ]]; then
+    local overwrite=${2:-true}
     while read -r line; do
       if [[ "$line" =~ "^(export )?([a-zA-Z0-9_]+)=(.*)" ]]; then
-        typeset -g -x ${match[2]}=${match[3]}
+        if [[ $overwrite == true || ! -v "$match[2]" ]]; then
+          typeset -g -x ${match[2]}=${match[3]}
+        fi
       fi
     done < "$1"
   fi
 }
 
 # First load user defaults
-load_config ~/.${argv0}rc
+load_config ~/.${argv0}rc false
 # Then check for directory specifics
 load_config .env
 

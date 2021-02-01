@@ -2,7 +2,7 @@
 
 Ucr is a tool for merging RESTful APIs with the command line.  It does this as thinly as it possibly can.  Which means it is more of a scripting pattern than anything else.
 
-The main need for this is to handle large amount of boilerplate and repeating parts of calling the API, reducing it down to a short commandline invocation with just the variable parts specified.  The other main use is for the APIs where there are multiple calls required in order to get the desired result. 
+The main need for this is to handle large amount of boilerplate and repeating parts of calling the API, reducing it down to a short commandline invocation with just the variable parts specified.  The other main use is for the APIs where there are multiple calls required in order to get the desired result.
 
 It is written in ZSH, as a few functions that handle a majority of parsing options, arguments, environments, and mapping to function calls.  Prior versions of UCR were written in Swift, Go, and Ruby.  However in the drive to reduce it to really just what was needed, it eventually was stripped down to its current form.  The core is pure ZSH; the primary work is done with [curl][] and [jq][].
 
@@ -34,11 +34,9 @@ After all options and keys have been removed from the argument list, the remaini
 
 ## Development
 
-
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/tadpol/ucr. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [code of conduct](https://github.com/tadpol/ucr/blob/master/CODE_OF_CONDUCT.md).
-
+Bug reports and pull requests are welcome on GitHub at [tadpol/ucr](https://github.com/tadpol/ucr). This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [code of conduct](https://github.com/tadpol/ucr/blob/master/CODE_OF_CONDUCT.md).
 
 ## License
 

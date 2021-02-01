@@ -212,27 +212,27 @@ function get_token {
 # They are all prefixed with `${(L)argv0}_`
 
 # This is called if a function based on the passed args couldn't be found.
-function ucr_function_not_found {
+function ${(L)argv0}_function_not_found {
   echo "Couldn't find a task based on these arguments: " >&2
   echo "  $*" >&2
   exit 1
 }
 
 # List all of the tasks that have been defined
-function ucr_tasks {
-  for fn in ${(@ok)functions[(I)ucr_*]}; do
+function ${(L)argv0}_tasks {
+  for fn in ${(@ok)functions[(I)${(L)argv0}_*]}; do
     echo ${${fn#${(L)argv0}_}//_/ }
   done
 }
-
-function ucr_envs {
+function ${(L)argv0}_envs {
   typeset -g | grep -e "^${(U)argv0}_"
 }
-function ucr_opts {
+function ${(L)argv0}_opts {
   for k in ${(@k)ucr_opts}; do
     echo "$k → ${ucr_opts[$k]}"
   done
 }
+
 function ucr_token {
   get_token
   echo $UCR_TOKEN
@@ -451,7 +451,7 @@ function ucr_keystore_cmd {
     -d "$req" 
 }
 
-function ucr_jmq_pr {
+function jmq_pr {
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs UCR_PROJECTS "[A-Z,]+"
@@ -468,7 +468,7 @@ function ucr_jmq_pr {
     -d "$req" | jq -r '.issues[] | .fields.summary + " (" + .key + ")"'
 }
 
-function ucr_jmq_todo {
+function jmq_todo {
   want_envs UCR_PROJECTS "[A-Z,]+"
   local jql=(
     "project in (${UCR_PROJECTS})"
@@ -485,7 +485,7 @@ function ucr_jmq_todo {
     -d "$req" | jq -r '.issues[] | [.key, .fields.summary] | @tsv'
 }
 
-function ucr_jmq_open {
+function jmq_open {
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs UCR_PROJECTS "[A-Z,]+"

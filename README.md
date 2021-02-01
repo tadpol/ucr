@@ -12,9 +12,11 @@ Ucr was an acronym for something, but I've long forgotten what it was.  I call i
 
 Copy `ucr.zsh` into your PATH somewhere, renaming it to `ucr`.  Also set it as executable if it is not already.
 
-You should also have [curl][] and [jq][] installed.
+You should also have [curl][] and [jq][] installed.  While many of the included tasks use these tools, the core does not require them.
 
 Eventhough this is written in ZSH, you don't have to be using ZSH as your shell.
+
+You can also link or rename the script and it will only find the tasks with that name as the prefix.
 
 ## Usage
 

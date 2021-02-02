@@ -306,6 +306,18 @@ function ucr_service_add {
     -d "$req"
 }
 
+function ucr_template_update {
+  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local repo_url=https://github.com/${${$(git remote get-url origin)#git@github.com:}%%.git}
+  repo_url+="/tree/$(git rev-parse --abbrev-ref HEAD)"
+  local req=$(jq -n -c --args url "$url" '{"url": $url}')
+  echo curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/update \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
 function ucr_tsdb_query {
   # metric names are just args, tags are <tag name>@<tag value>
   # others are all --options=value
@@ -457,8 +469,8 @@ function ucr_keystore_cmd {
 function jmq_pr {
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
-    want_envs UCR_PROJECTS "[A-Z,]+"
-    key=${UCR_PROJECTS%%,*}-$key
+    want_envs JMQ_PROJECTS "[A-Z,]+"
+    key=${JMQ_PROJECTS%%,*}-$key
   fi
   if [[ $key =~ "^[a-zA-Z]+-[0-9]+$" ]]; then
     key="key=$key"
@@ -472,9 +484,9 @@ function jmq_pr {
 }
 
 function jmq_todo {
-  want_envs UCR_PROJECTS "[A-Z,]+"
+  want_envs JMQ_PROJECTS "[A-Z,]+"
   local jql=(
-    "project in (${UCR_PROJECTS})"
+    "project in (${JMQ_PROJECTS})"
     "sprint in openSprints()"
     "sprint not in futureSprints()"
     "assignee = currentUser()"
@@ -491,8 +503,8 @@ function jmq_todo {
 function jmq_open {
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
-    want_envs UCR_PROJECTS "[A-Z,]+"
-    key=${UCR_PROJECTS%%,*}-$key
+    want_envs JMQ_PROJECTS "[A-Z,]+"
+    key=${JMQ_PROJECTS%%,*}-$key
   fi
 
   open -a safari https://exosite.atlassian.net/browse/${(U)key}

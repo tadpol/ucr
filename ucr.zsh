@@ -500,6 +500,28 @@ function jmq_todo {
     -d "$req" | jq -r '.issues[] | [.key, .fields.summary] | @tsv'
 }
 
+function jmq_status {
+  want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local jql=(
+    "project in (${JMQ_PROJECTS})"
+    "sprint in openSprints()"
+    "sprint not in futureSprints()"
+    "assignee = currentUser() ORDER BY Rank"
+  )
+  local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary","status"] }')
+
+  curl -s https://exosite.atlassian.net/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req" | jq -r '.issues |
+  group_by(.fields.status.name) |
+  map({"key": .[0].fields.status.name, "value": map([("- "+.key), .fields.summary] | @tsv) | join("\n")}) |
+  map(select([.key] | inside(["In Progress","On Deck"]))) |
+  map([(.key+":"), .value]) |
+  flatten | 
+  join("\n")'
+}
+
 function jmq_open {
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then

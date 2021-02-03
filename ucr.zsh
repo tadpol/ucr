@@ -469,7 +469,7 @@ function ucr_keystore_cmd {
 function jmq_pr {
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
-    want_envs JMQ_PROJECTS "[A-Z,]+"
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
   if [[ $key =~ "^[a-zA-Z]+-[0-9]+$" ]]; then
@@ -484,7 +484,7 @@ function jmq_pr {
 }
 
 function jmq_todo {
-  want_envs JMQ_PROJECTS "[A-Z,]+"
+  want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local jql=(
     "project in (${JMQ_PROJECTS})"
     "sprint in openSprints()"
@@ -503,7 +503,7 @@ function jmq_todo {
 function jmq_open {
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
-    want_envs JMQ_PROJECTS "[A-Z,]+"
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
 

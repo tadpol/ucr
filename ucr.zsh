@@ -513,6 +513,29 @@ function jmq_pr {
     -d "$req" | jq -r '.issues[] | .fields.summary + " (" + .key + ")"'
 }
 
+function jmq_next {
+  local key=${1:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+
+  # Get what transitions can be made.
+  local transitions=$(v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/transitions --netrc)
+
+  # Display menu list and ask which to take. (If only one, then just take that without asking)
+  local trn=$(jq -r '.transitions[] | [.id, .name] | @tsv' <<< $transitions | fzf \
+    --select-1 --no-multi --nth=2.. --with-nth=2.. --height 30% --prompt="Follow which transition? ")
+  if [[ -z "$trn" ]]; then
+    exit
+  fi
+  local transition_id=$(awk '{print $1}' <<< $trn )
+  # Take it
+  v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/transitions \
+    --netrc \
+    -d "{\"transition\":{\"id\": ${transition_id} }}"
+}
+
 function jmq_todo {
   want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local jql=(

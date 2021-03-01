@@ -210,6 +210,36 @@ function get_token {
   fi
 }
 
+function v_curl {
+  if [[ -n "$ucr_opts[curl]" ]]; then
+    # Add quoting
+    local wk=(curl $@)
+    local i
+    for (( i = 1; i <= $#wk; i++ )) do
+      if [[ "${wk[i]}" =~ " " ]];then
+        wk[i]="${(qq)wk[i]}"
+      fi
+    done
+
+    # Break lines with '\\\n' when too long (but don't break and arg)
+    # TODO: don't indent first line.
+    typeset -a fin
+    local line=''
+    for a in $wk; do
+      if (( ( $#line + $#a ) > $COLUMNS )); then
+        fin+=$line
+        line=''
+      fi
+      line+=" $a"
+    done
+    fin+=$line
+    echo ${(j: \\\n:)fin} >&2
+  fi
+  if [[ -z "$ucr_opts[dry]" ]]; then
+    curl "$@"
+  fi
+}
+
 ##############################################################################
 # Below is the functions defined as tasks callable from cmdline args
 # They are all prefixed with `${(L)argv0}_`
@@ -494,7 +524,7 @@ function jmq_todo {
   )
   local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary"] }')
 
-  curl -s https://exosite.atlassian.net/rest/api/2/search \
+  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req" | jq -r '.issues[] | [.key, .fields.summary] | @tsv'

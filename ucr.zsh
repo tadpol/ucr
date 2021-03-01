@@ -516,12 +516,17 @@ function jmq_pr {
 function jmq_todo {
   want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local jql=(
-    "project in (${JMQ_PROJECTS})"
-    "sprint in openSprints()"
-    "sprint not in futureSprints()"
     "assignee = currentUser()"
     "status = \"On Deck\" ORDER BY Rank"
   )
+  if [[ -z "${ucr_opts[all]}" ]]; then
+    jql=(
+      "project in (${JMQ_PROJECTS})"
+      "sprint in openSprints()"
+      "sprint not in futureSprints()"
+      $jql
+    )
+  fi
   local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary"] }')
 
   v_curl -s https://exosite.atlassian.net/rest/api/2/search \

@@ -290,7 +290,7 @@ function ucr_env_get {
 function ucr_env_set {
   want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
-  local req=$(jq -n -c '[$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries' --args -- ${=argv})
+  local req=$(jq -n -c '[$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries' --args -- "${@}")
   curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/env \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
@@ -385,7 +385,7 @@ function ucr_tsdb_query {
   local opt_req="{ ${(j:, :)build_req} }"
 
   # XXX: tag OR queries are not currently supported.
-  local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |{"tags": map(select(.value))|from_entries, "metrics": map(select(.value|not)|.key)})' --args -- ${=argv} <<< $opt_req)
+  local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |{"tags": map(select(.value))|from_entries, "metrics": map(select(.value|not)|.key)})' --args -- "${@}" <<< $opt_req)
 
   curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/query \
     -H 'Content-Type: application/json' \
@@ -472,7 +472,7 @@ function ucr_keystore_delete {
   get_token
   local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   [[ $# == 0 ]] && echo "Missing keys to delete" >&2 && exit 2
-  local req=$(jq -n -c '{"keys":$ARGS.positional}' --args -- ${=argv})
+  local req=$(jq -n -c '{"keys":$ARGS.positional}' --args -- "${@}")
 
   curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/mdelete \
     -H 'Content-Type: application/json' \
@@ -488,7 +488,7 @@ function ucr_keystore_cmd {
   shift 2
   local req=$(jq -n -c --arg key "$key" --arg cmd "$cmd" \
     '{"key":$key,"command":$cmd, "args": $ARGS.positional}' \
-    --args -- ${=argv})
+    --args -- "${@}")
 
   curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/command \
     -H 'Content-Type: application/json' \

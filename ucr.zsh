@@ -37,7 +37,7 @@ function task_runner {
   local ucr_cmdline=()
 
   # First pass, look for long options, short options, and env pairs
-  for arg in ${(z)*}; do
+  for arg in ${(s: :)*}; do
     if [[ "$arg" =~ "^--" ]]; then
       # long option
       local opt=${arg#--}

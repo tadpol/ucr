@@ -211,6 +211,7 @@ function get_token {
 }
 
 function v_curl {
+  # When --curl, print out a copy/pastable curl … that is also nice-ish to read.
   if [[ -n "$ucr_opts[curl]" ]]; then
     # Add quoting
     local wk=(curl $@)
@@ -235,6 +236,7 @@ function v_curl {
     fin+=$line
     echo ${(j: \\\n:)fin} >&2
   fi
+  # Just skipping causes issues in some places where output is piped
   if [[ -z "$ucr_opts[dry]" ]]; then
     curl "$@"
   fi
@@ -447,12 +449,13 @@ function ucr_keystore_list {
 function ucr_keystore_get {
   get_token
   local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
-  local key=${1:?Need key argument}
+  [[ $# == 0 ]] && echo "Missing keys to get" >&2 && exit 2
+  local req=$(jq -n -c '{"keys":$ARGS.positional}' --args -- "${@}")
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/get \
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/mget \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
-    -d "{\"key\":\"${key}\"}"
+    -d "$req"
 }
 
 function ucr_keystore_set {

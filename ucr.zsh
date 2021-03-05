@@ -353,6 +353,7 @@ function ucr_template_update {
 function ucr_tsdb_query {
   # metric names are just args, tags are <tag name>@<tag value>
   # others are all --options=value
+  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
   # Need a list of the options we will care about.
@@ -390,6 +391,27 @@ function ucr_tsdb_query {
   local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |{"tags": map(select(.value))|from_entries, "metrics": map(select(.value|not)|.key)})' --args -- "${@}" <<< $opt_req)
 
   curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/query \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_tsdb_recent {
+  # recent <tag name> <metrics>… @<tag values>… 
+  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  local tag_name=${1:?Need tag name}
+  shift
+  [[ $# == 0 ]] && echo "Missing metrics and tag values" >&2 && exit 2
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+
+  local req=$(jq -n -c --arg tn "${tag_name}" '{
+    "metrics": ($ARGS.positional | map(select(. | startswith("@") | not))),
+    "tag_name": $tn,
+    "tag_values": ($ARGS.positional | map(select(. | startswith("@"))) | map(split("@") | .[1] )),  
+  }' --args -- "${@}")
+
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/recent \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"

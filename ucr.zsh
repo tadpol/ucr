@@ -343,8 +343,8 @@ function ucr_template_update {
   get_token
   local repo_url=https://github.com/${${$(git remote get-url origin)#git@github.com:}%%.git}
   repo_url+="/tree/$(git rev-parse --abbrev-ref HEAD)"
-  local req=$(jq -n -c --args url "$url" '{"url": $url}')
-  echo curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/update \
+  local req=$(jq -n -c --arg url "$repo_url" '{"url": $url}')
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/update \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"

@@ -529,6 +529,27 @@ function ucr_keystore_cmd {
     -d "$req" 
 }
 
+function ucr_insight_info {
+  get_token
+  local service=${1:?Need Insight Service Name}
+  local service_uuid=$(ucr_service_uuid ${(L)service} | jq -r .id)
+
+  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_insight_functions {
+  get_token
+  local service=${1:?Need Insight Service Name}
+  local service_uuid=$(ucr_service_uuid ${(L)service} | jq -r .id)
+
+  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listInsights \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d '{"limit":1000}'
+}
+
 function jmq_pr {
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then

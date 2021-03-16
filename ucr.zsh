@@ -338,6 +338,14 @@ function ucr_service_add {
     -d "$req"
 }
 
+function ucr_service_schema {
+  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service=${1:?Need service name}
+  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/service/${(L)service}/schema \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
 function ucr_template_update {
   want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token

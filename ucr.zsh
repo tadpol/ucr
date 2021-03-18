@@ -9,6 +9,7 @@
 argv0=${${0:t}:r}
 
 # This loads only the key=values and does not execute any code that might be included.
+# This is for files that are like .env
 function load_config {
   if [[ -f "$1" ]]; then
     local overwrite=${2:-true}
@@ -22,8 +23,32 @@ function load_config {
   fi
 }
 
-# First load user defaults
-load_config ~/.${argv0}rc false
+# This loads only the key=values for a given section
+# If no section, then loads key=values up to first defined section
+function load_from_ini {
+  if [[ -f "$1" ]]; then
+    local section=${2:-default}
+    local overwrite=${3:-true}
+    # echo ">S ${section} O ${overwrite}" >&2
+    local current_section=default
+    while read -r line; do
+      if [[ "$line" =~ "^(export )?([a-zA-Z0-9_]+)=(.*)" ]]; then
+        if [[ "$current_section" == "$section" ]]; then
+          # echo ">VAR ${match[2]} = ${match[3]}" >&2
+          if [[ $overwrite == true || ! -v "$match[2]" ]]; then
+            typeset -g -x ${match[2]}=${match[3]}
+          fi
+        fi
+      elif [[  "$line" =~ "^\[([^]]*)\]"  ]]; then
+        # echo ">SECTION ${match[1]}" >&2
+        current_section=${match[1]}
+      fi
+    done < "$1"
+  fi
+}
+
+# First load user defaults (under any existing ENVs)
+load_from_ini ~/.${argv0}rc default false
 # Then check for directory specifics
 load_config .env
 
@@ -85,6 +110,13 @@ function task_runner {
   done
   if (( ${#leftovers} == 0 )); then
     ucr_cmdline=(${(L)argv0}_function_not_found ${remaining[@]})
+  fi
+
+  # Handle Global Options here:
+  if [[ -n "$ucr_opts[sec]" ]]; then
+    # echo "> Using ${ucr_opts[sec]}" >&2
+    local cfg=${ucr_opts[cfg]:-~/.${argv0}rc}
+    load_from_ini "$cfg" "${ucr_opts[sec]}"
   fi
 
   # echo "do: $ucr_cmdline" >&2

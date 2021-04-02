@@ -10,6 +10,7 @@ argv0=${${0:t}:r}
 
 # This loads only the key=values and does not execute any code that might be included.
 # This is for files that are like .env
+# When overwrite is false, won't set an already set variable
 function load_config {
   if [[ -f "$1" ]]; then
     local overwrite=${2:-true}
@@ -25,6 +26,7 @@ function load_config {
 
 # This loads only the key=values for a given section
 # If no section, then loads key=values up to first defined section
+# When overwrite is false, won't set an already set variable
 function load_from_ini {
   if [[ -f "$1" ]]; then
     local section=${2:-default}
@@ -255,18 +257,17 @@ function v_curl {
     done
 
     # Break lines with '\\\n' when too long (but don't break and arg)
-    # TODO: don't indent first line.
     typeset -a fin
-    local line=''
+    typeset -a line
     for a in $wk; do
       if (( ( $#line + $#a ) > $COLUMNS )); then
         fin+=$line
-        line=''
+        line=()
       fi
-      line+=" $a"
+      line+=$a
     done
-    fin+=$line
-    echo ${(j: \\\n:)fin} >&2
+    fin+=${(j: :)line}
+    echo ${(j: \\\n  :)fin} >&2
   fi
   # Just skipping causes issues in some places where output is piped
   if [[ -z "$ucr_opts[dry]" ]]; then

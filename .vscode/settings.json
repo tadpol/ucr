@@ -1,7 +1,12 @@
 {
   "cSpell.words": [
+    "auth",
     "cmdline",
+    "murdoc",
     "netrc",
-    "nwise"
+    "nwise",
+    "psql",
+    "rediscli",
+    "sshto"
   ]
 }

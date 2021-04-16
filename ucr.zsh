@@ -431,7 +431,7 @@ function ucr_tsdb_query {
   # XXX: tag OR queries are not currently supported.
   local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |{"tags": map(select(.value))|from_entries, "metrics": map(select(.value|not)|.key)})' --args -- "${@}" <<< $opt_req)
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/query \
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/query \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
@@ -702,6 +702,72 @@ function jmq_open {
 
   open -a safari https://exosite.atlassian.net/browse/${(U)key}
 }
+
+function murdoc_images {
+  want_envs SSHTO ".*"
+  ${SSHTO} "sudo bash -s" <<-'EOS'
+    docker inspect $(docker inspect $(docker ps -q) --format='{{.Image}}')
+EOS
+}
+
+function murdoc_ps {
+  # --name|-n
+  want_envs SSHTO ".*"
+  local filter='.'
+  if [[ -n "${ucr_opts[name]}" || -n "${ucr_opts[n]}" ]]; then
+    filter='map( {(.Name | tostring): .}) | add'
+  fi
+  ${SSHTO} 'sudo docker inspect $(sudo docker ps -q)' | jq "${filter}"
+}
+
+function murdoc_names {
+  want_envs SSHTO ".*"
+  ${SSHTO} "sudo bash -s" <<-'EOS' | jq -r 'map(.Name) | sort | .[]'
+    docker inspect $(docker ps -q)
+EOS
+}
+
+function murdoc_env {
+  want_envs SSHTO ".*"
+  local key=${1:?Missing Container Name}
+  ${SSHTO} "sudo docker inspect $1" | jq -r '.[0].Config.Env[]'
+}
+
+# Get envs for service, reshape into envs for psql, load them and call psql.
+function murdoc_psql {
+  local ens=($(murdoc_env $1 | grep DB_ | sed -e 's/^DB_/PG/'))
+  for r in $ens; do
+    if [[ "$r" =~ "([a-zA-Z0-9_]+)=(.*)" ]]; then
+      typeset -g -x ${match[1]}=${match[2]}
+    fi
+  done
+  psql
+}
+
+# Get envs for service, reshape into envs for redis, load them and call redis-cli.
+# Redis-cli only takes password via env, others need options.
+function murdoc_redis {
+  ens=($(murdoc_env $1 | grep REDIS_ | sed -e 's/^REDIS_//' ))
+
+  # HOST, PORT, PASSWORD, USER, DB
+  typeset -A redis_keys
+  redis_keys[PORT]=6379
+  redis_keys[HOST]=127.0.0.1
+  redis_keys[USER]=''
+  redis_keys[DB]=0
+  for r in $ens; do
+    if [[ "$r" =~ "([a-zA-Z0-9_]+)=(.*)" ]]; then
+      redis_keys[${match[1]}]=${match[2]}
+    fi
+  done
+
+  if [[ -n "${redis_keys[PASSWORD]}" ]]; then
+    typeset -g -x REDISCLI_AUTH=${redis_keys[PASSWORD]}
+  fi
+  shift 1
+  redis-cli -h ${redis_keys[HOST]} -p ${redis_keys[PORT]} -n ${redis_keys[DB]} "$@"
+}
+
 
 ##############################################################################
 # This needs to be last.

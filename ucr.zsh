@@ -620,6 +620,7 @@ function jmq_next {
   # Take it
   v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/transitions \
     --netrc \
+    -H 'Content-Type: application/json' \
     -d "{\"transition\":{\"id\": ${transition_id} }}"
 }
 

@@ -705,7 +705,7 @@ function jmq_open {
 
 function murdoc_images {
   want_envs SSHTO ".*"
-  ${SSHTO} "sudo bash -s" <<-'EOS'
+  ${=SSHTO} "sudo bash -s" <<-'EOS'
     docker inspect $(docker inspect $(docker ps -q) --format='{{.Image}}')
 EOS
 }
@@ -717,12 +717,18 @@ function murdoc_ps {
   if [[ -n "${ucr_opts[name]}" || -n "${ucr_opts[n]}" ]]; then
     filter='map( {(.Name | tostring): .}) | add'
   fi
-  ${SSHTO} 'sudo docker inspect $(sudo docker ps -q)' | jq "${filter}"
+  ${=SSHTO} 'sudo docker inspect $(sudo docker ps -q)' | jq "${filter}"
+}
+
+function murdoc_status {
+  want_envs SSHTO ".*"
+  filter='sort_by(.Name)|.[]|[.Name, .State.Status, .State.Health.Status]|@csv'
+  ${=SSHTO} 'sudo docker inspect $(sudo docker ps -q)' | jq -r "${filter}" | xsv table
 }
 
 function murdoc_names {
   want_envs SSHTO ".*"
-  ${SSHTO} "sudo bash -s" <<-'EOS' | jq -r 'map(.Name) | sort | .[]'
+  ${=SSHTO} "sudo bash -s" <<-'EOS' | jq -r 'map(.Name) | sort | .[]'
     docker inspect $(docker ps -q)
 EOS
 }
@@ -730,7 +736,7 @@ EOS
 function murdoc_env {
   want_envs SSHTO ".*"
   local key=${1:?Missing Container Name}
-  ${SSHTO} "sudo docker inspect $1" | jq -r '.[0].Config.Env[]'
+  ${=SSHTO} "sudo docker inspect $1" | jq -r '.[0].Config.Env[]'
 }
 
 # Get envs for service, reshape into envs for psql, load them and call psql.

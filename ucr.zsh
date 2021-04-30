@@ -583,6 +583,20 @@ function ucr_insight_functions {
     -d '{"limit":1000}'
 }
 
+function jmq_q {
+  # --fields=*all to get everything
+  local jql=($@)
+  local fields=(key summary)
+  if [[ -n ${ucr_opts[fields]} ]]; then
+    fields=(${(s:,:)ucr_opts[fields]})
+  fi
+  local req=$(jq -n -c --arg jql "${(j: :)jql}" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
+  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req"
+}
+
 function jmq_pr {
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then

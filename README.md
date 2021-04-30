@@ -51,3 +51,4 @@ Everyone interacting in the Ucr project's codebases, issue trackers, chat rooms 
 [curl]: https://curl.se
 [jq]: https://stedolan.github.io/jq/
 [fzf]: https://github.com/junegunn/fzf#table-of-contents
+[ZSH]: http://zsh.sourceforge.net

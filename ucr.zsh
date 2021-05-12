@@ -429,8 +429,11 @@ function ucr_tsdb_query {
   done
   local opt_req="{ ${(j:, :)build_req} }"
 
-  # XXX: tag OR queries are not currently supported.
-  local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |{"tags": map(select(.value))|from_entries, "metrics": map(select(.value|not)|.key)})' --args -- "${@}" <<< $opt_req)
+  local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
+    {
+      "tags": map(select(.value)) | group_by(.key) | map({"key":.[0].key,"value":(map(.value) | if length==1 then first else . end)}) | from_entries,
+      "metrics": map(select(.value | not) | .key)
+    })' --args -- "${@}" <<< $opt_req)
 
   v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/query \
     -H 'Content-Type: application/json' \

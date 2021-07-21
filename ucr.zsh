@@ -62,10 +62,15 @@ typeset -A ucr_opts
 function task_runner {
   local leftovers=()
   local ucr_cmdline=()
+  local double_dash=false
 
-  # First pass, look for long options, short options, and env pairs
+  # First pass, look for long options, short options, and env pairGs
   for arg in ${(s: :)*}; do
-    if [[ "$arg" =~ "^--" ]]; then
+    if [[ "$double_dash" = "true" ]]; then
+      leftovers[${#leftovers}+1]=$arg
+    elif [[ "$arg" =~ "^--$" ]]; then
+      double_dash=true
+    elif [[ "$arg" =~ "^--" ]]; then
       # long option
       local opt=${arg#--}
       if [[ "$opt" =~ "^([^=]+)=(.*)" ]]; then
@@ -292,12 +297,16 @@ function ${(L)argv0}_tasks {
     echo ${${fn#${(L)argv0}_}//_/ }
   done
 }
-function ${(L)argv0}_envs {
-  typeset -g | grep -e "^${(U)argv0}_"
-}
-function ${(L)argv0}_opts {
+function ${(L)argv0}_state {
+  echo "ENV:"
+  typeset -g | grep -e "^${(U)argv0}_" | sed -e 's/=/: /' -e 's/^/ /'
+  echo "OPTIONS:"
   for k in ${(@k)ucr_opts}; do
-    echo "$k → ${ucr_opts[$k]}"
+    echo " $k → ${ucr_opts[$k]}"
+  done
+  echo "ARGS:"
+  for k in "$@"; do
+    echo " $k"
   done
 }
 

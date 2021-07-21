@@ -365,7 +365,7 @@ function ucr_service_add {
   want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service=${1:?Need service name}
-  local req=$(jq -n -c --args service "${(L)service}" --args sid "$UCR_SID" '{"solution_id": $sid, "service": $service}')
+  local req=$(jq -n -c --arg service "${(L)service}" --arg sid "$UCR_SID" '{"solution_id": $sid, "service": $service}')
   curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${(L)service} \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \

@@ -625,6 +625,36 @@ function ucr_insight_functions {
     -d '{"limit":1000}'
 }
 
+function ucr_content_list {
+  get_token
+  local service_uuid=$(ucr_service_uuid content | jq -r .id)
+  local opt_req=$(options_to_json \
+    limit "^[1-9][0-9]*$" \
+    op "^(AND|OR)$" \
+    cursor ".+"
+  )
+  [[ -z "$opt_req" ]] && exit 4
+
+  local req=$(jq -c '. + {"prefix": $ARGS.positional[0] }' --args -- "${@}" <<< $opt_req)
+
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_content_deleteMulti {
+  get_token
+  local service_uuid=$(ucr_service_uuid content | jq -r .id)
+  local req=$(jq -n -c '{ "body" : $ARGS.positional }' --args -- "$@")
+
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/deleteMulti \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+
 function jmq_q {
   # --fields=*all to get everything
   local jql=($@)

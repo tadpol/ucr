@@ -146,6 +146,30 @@ function want_envs {
   done
 }
 
+# Checks that if an option was specified, it validates
+# Then outputs a JSON object of the options and values.
+function options_to_json {
+  typeset -A maybe_opts=($*)
+  local build_req=()
+  local key
+  for key in ${(k)maybe_opts}; do
+    if [[ -n "${ucr_opts[$key]}" ]]; then
+      if [[ ${ucr_opts[$key]} =~ ${maybe_opts[$key]} ]]; then
+        # if it looks like a number, use a number.
+        if [[ ${ucr_opts[$key]} =~ "^[0-9]+$" ]]; then
+          build_req+="\"${key}\":${ucr_opts[$key]}"
+        else
+          build_req+="\"${key}\":\"${ucr_opts[$key]}\""
+        fi
+      else
+        echo "Option: '$key' is not valid according to ${maybe_opts[$key]}" >&2
+        exit 3
+      fi
+    fi
+  done
+  echo "{ ${(j:, :)build_req} }"
+}
+
 # Helper function to get passwords out of a netrc file
 function scan_netrc {
   local host_to_find=$1
@@ -407,36 +431,22 @@ function ucr_tsdb_query {
   want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
-  # Need a list of the options we will care about.
-  typeset -A maybe_opts=(
-    start_time "[1-9][0-9]*(u|ms|s)?"
-    end_time "[1-9][0-9]*(u|ms|s)?"
-    relative_start "-[1-9][0-9]*(u|ms|s|m|h|d|w)?"
-    relative_end "-[1-9][0-9]*(u|ms|s|m|h|d|w)?"
-    sampling_size "[1-9][0-9]*(u|ms|s|m|h|d|w)?"
-    limit "[1-9][0-9]*"
-    epoch "(u|ms|s)"
-    mode "(merge|split)"
-    fill "(null|previous|none|[1-9][0-9]*|~s:.+)" # TODO: how to allow empty string? (more than just the regexp here)
-    order_by "(desc|asc)"
+  # Validate a list of the options we will care about.
+  local opt_req=$(
+    options_to_json \
+    start_time "[1-9][0-9]*(u|ms|s)?" \
+    end_time "[1-9][0-9]*(u|ms|s)?" \
+    relative_start "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+    relative_end "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+    sampling_size "[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+    limit "[1-9][0-9]*" \
+    epoch "(u|ms|s)" \
+    mode "(merge|split)" \
+    fill "(null|previous|none|[1-9][0-9]*|~s:.+)" \
+    order_by "(desc|asc)" \
     aggregate "((avg|min|max|count|sum),?)+"
   )
-  local build_req=()
-  for key in ${(k)maybe_opts}; do
-    if [[ -n "${ucr_opts[$key]}" ]]; then
-      if [[ ${ucr_opts[$key]} =~ ${maybe_opts[$key]} ]]; then
-        # for all tsdb query options, if it looks like a number, use a number.
-        if [[ ${ucr_opts[$key]} =~ "^[0-9]+$" ]]; then
-          build_req+="\"${key}\":${ucr_opts[$key]}"
-        else
-          build_req+="\"${key}\":\"${ucr_opts[$key]}\""
-        fi
-      else
-        echo "Option: '$key' is not valid according to ${maybe_opts[$key]}" >&2
-      fi
-    fi
-  done
-  local opt_req="{ ${(j:, :)build_req} }"
+  [[ -z "$opt_req" ]] && exit 4
 
   local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
     {
@@ -516,26 +526,8 @@ function ucr_tsdb_write {
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
 
-  # TODO: Turn this option validator to JSON thing into a function.
-  typeset -A maybe_opts=(
-    ts "[1-9][0-9]*(u|ms|s)?"
-  )
-  local build_req=()
-  for key in ${(k)maybe_opts}; do
-    if [[ -n "${ucr_opts[$key]}" ]]; then
-      if [[ ${ucr_opts[$key]} =~ ${maybe_opts[$key]} ]]; then
-        # for all tsdb query options, if it looks like a number, use a number.
-        if [[ ${ucr_opts[$key]} =~ "^[0-9]+$" ]]; then
-          build_req+="\"${key}\":${ucr_opts[$key]}"
-        else
-          build_req+="\"${key}\":\"${ucr_opts[$key]}\""
-        fi
-      else
-        echo "Option: '$key' is not valid according to ${maybe_opts[$key]}" >&2
-      fi
-    fi
-  done
-  local opt_req="{ ${(j:, :)build_req} }"
+  local opt_req=$(options_to_json ts "[1-9][0-9]*(u|ms|s)?")
+  [[ -z "$opt_req" ]] && exit 4
 
   local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
     { "tags": (map(select(.value)) | from_entries),

@@ -635,7 +635,7 @@ function ucr_content_list {
   )
   [[ -z "$opt_req" ]] && exit 4
 
-  local req=$(jq -c '. + {"prefix": $ARGS.positional[0] }' --args -- "${@}" <<< $opt_req)
+  local req=$(jq -c '. + {"prefix": $ARGS.positional[0] } | with_entries(select( .value != null ))' --args -- "${@}" <<< $opt_req)
 
   v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
     -H 'Content-Type: application/json' \
@@ -654,6 +654,24 @@ function ucr_content_deleteMulti {
     -d "$req"
 }
 
+function ucr_content_download {
+  get_token
+  local service_uuid=$(ucr_service_uuid content | jq -r .id)
+  local cid=${1:?Need content id to download}
+  local opt_req=$(options_to_json \
+    expires_in "^\d+$" \
+  )
+  [[ -z "$opt_req" ]] && exit 4
+  local req=$(jq -c --arg cid "$cid" '. + {"id": $cid }' <<< $opt_req)
+
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/download \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+
+  # ??? Should we extract the URL info and then run a curl on that right away?  Or would I rather not have that be automatic?
+  # Or maybe options to select?
+}
 
 function jmq_q {
   # --fields=*all to get everything

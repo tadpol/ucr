@@ -416,8 +416,13 @@ function ucr_service_schema {
 function ucr_template_update {
   want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
-  local repo_url=https://github.com/${${$(git remote get-url origin)#git@github.com:}%%.git}
-  repo_url+="/tree/$(git rev-parse --abbrev-ref HEAD)"
+  local repo_url
+  if [[ $# > 0 ]]; then
+    repo_url=$1
+  else
+    repo_url=https://github.com/${${$(git remote get-url origin)#git@github.com:}%%.git}
+    repo_url+="/tree/$(git rev-parse --abbrev-ref HEAD)"
+  fi
   local req=$(jq -n -c --arg url "$repo_url" '{"url": $url}')
   v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/update \
     -H 'Content-Type: application/json' \

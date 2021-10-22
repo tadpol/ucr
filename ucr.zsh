@@ -413,6 +413,15 @@ function ucr_service_schema {
     -H "Authorization: token $UCR_TOKEN"
 }
 
+function ucr_business_solutions {
+  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_BID "^[a-zA-Z0-9]+$"
+  get_token
+
+  v_curl -s "https://${UCR_HOST}/api:1/business/${UCR_BID}/solution/" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
 function ucr_template_update {
   want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token

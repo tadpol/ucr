@@ -890,7 +890,12 @@ function murdoc_redis {
     typeset -g -x REDISCLI_AUTH=${redis_keys[PASSWORD]}
   fi
   shift 1
-  redis-cli -h ${redis_keys[HOST]} -p ${redis_keys[PORT]} -n ${redis_keys[DB]} "$@"
+
+  if [[ -n "${redis_keys[URL]}" ]];then
+    redis-cli -u "${redis_keys[URL]}" "$@"
+  else
+    redis-cli -h ${redis_keys[HOST]} -p ${redis_keys[PORT]} -n ${redis_keys[DB]} "$@"
+  fi
 }
 
 

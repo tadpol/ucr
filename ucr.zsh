@@ -773,7 +773,7 @@ function jmq_info {
   if [[ $key =~ "^[a-zA-Z]+-[0-9]+$" ]]; then
     key="key=$key"
   fi
-  local fields=(key summary description assignee reporter priority issuetype status resolution votes watches)
+  local fields=(key summary description assignee reporter priority issuetype status resolution votes watches customfield_10820)
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
   v_curl -s https://exosite.atlassian.net/rest/api/2/search \
@@ -784,6 +784,7 @@ function jmq_info {
     Summary: \(.fields.summary)
    Reporter: \(.fields.reporter.displayName)
    Assignee: \(.fields.assignee.displayName)
+     Tester: \(.fields.customfield_10820.displayName)
        Type: \(.fields.issuetype.name) (\(.fields.priority.name))
      Status: \(.fields.status.name) (Resolution: \(.fields.resolution.name))
     Watches: \(.fields.watches.watchCount)  Votes: \(.fields.votes.votes)

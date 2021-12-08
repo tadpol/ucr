@@ -582,9 +582,13 @@ function ucr_keystore_set {
   local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   local key=${1:?Need key argument}
   local value=${2:?Need value to set}
+  if [[ "$value" = "-" ]]; then
+    value=$(</dev/stdin)
+  fi
+
   local req=$(jq -n -c --arg key "$key" --arg value "$value" '{"key":$key,"value":$value}')
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/set \
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/set \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"

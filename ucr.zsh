@@ -860,7 +860,7 @@ function jmq_open {
     key=${JMQ_PROJECTS%%,*}-$key
   fi
 
-  open -a safari https://exosite.atlassian.net/browse/${(U)key}
+  open https://exosite.atlassian.net/browse/${(U)key}
 }
 
 function murdoc_images {

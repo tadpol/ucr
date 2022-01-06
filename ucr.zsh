@@ -746,6 +746,42 @@ function jmq_next {
     -d "{\"transition\":{\"id\": ${transition_id} }}"
 }
 
+# Move tickets to named state
+# jmq move FOO-0000 In Progress
+function jmq_move {
+  local key=${1:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  shift
+  if [[ $# < 1 ]]; then
+    echo "Missing state" >&2
+    exit 1
+  fi
+  local state="${(j: :)*}"
+
+  # Get what transitions can be made.
+  local transitions=$(v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/transitions --netrc)
+
+  local inp_id=$(jq --arg nme "$state" '.transitions[]|select(.name==$nme)|.id' <<< $transitions)
+  if [[ -z "$inp_id" ]]; then
+    echo "Cannot directly transition to $state" 
+    exit
+  fi
+
+  v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/transitions \
+    --netrc \
+    -H 'Content-Type: application/json' \
+    -d "{\"transition\":{\"id\": ${inp_id} }}"
+}
+
+# Move an issue back to In Progress
+# Used for "undoing" automatic CI transitions.
+function jmq_inp {
+  jmq_move "$1" In Progress
+}
+
 function jmq_todo {
   want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local jql=(

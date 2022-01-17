@@ -907,7 +907,11 @@ function murdoc_psql {
       typeset -g -x ${match[1]}=${match[2]}
     fi
   done
-  psql
+  if [[ -n "${PGURL}" ]]; then
+    psql "$PGURL"
+  else
+    psql
+  fi
 }
 
 # Get envs for service, reshape into envs for redis, load them and call redis-cli.

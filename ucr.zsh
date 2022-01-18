@@ -326,7 +326,11 @@ function ${(L)argv0}_state {
   typeset -g | grep -e "^${(U)argv0}_" | sed -e 's/=/: /' -e 's/^/ /'
   echo "OPTIONS:"
   for k in ${(@k)ucr_opts}; do
-    echo " $k → ${ucr_opts[$k]}"
+    if [[ ${#k} == 1 && ${ucr_opts[$k]} =~ "^[0-9]+$" ]]; then
+      echo " -${(pl:${ucr_opts[$k]}::$k:)}"
+    else
+      echo " --${k}=${ucr_opts[$k]}"
+    fi
   done
   echo "ARGS:"
   for k in "$@"; do

@@ -921,7 +921,15 @@ function murdoc_psql {
 # Get envs for service, reshape into envs for redis, load them and call redis-cli.
 # Redis-cli only takes password via env, others need options.
 function murdoc_redis {
-  ens=($(murdoc_env $1 | grep REDIS_ | sed -e 's/^REDIS_//' ))
+  local prefix=REDIS_
+  if [[ -n "${ucr_opts[live]}" ]]; then
+    prefix=LIVE_DATA_REDIS_
+  fi
+  if [[ -n "${ucr_opts[prefix]}" ]]; then
+    prefix=${ucr_opts[prefix]}
+  fi
+
+  ens=($(murdoc_env $1 | grep ^${prefix} |sed -e "s/^${prefix}//" ))
 
   # HOST, PORT, PASSWORD, USER, DB
   typeset -A redis_keys

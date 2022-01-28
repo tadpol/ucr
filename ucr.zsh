@@ -148,6 +148,7 @@ function want_envs {
 
 # Checks that if an option was specified, it validates
 # Then outputs a JSON object of the options and values.
+# TODO: ? maybe if --help, then dump all of the options and exit?
 function options_to_json {
   typeset -A maybe_opts=($*)
   local build_req=()
@@ -897,10 +898,20 @@ function murdoc_names {
 EOS
 }
 
+function murdoc_namer {
+  # If exists AND younger than 2 days, then cache_file is not empty. (use the cache file)
+  # Otherwise, update cache
+  cache_file=~/.murdoc_names_cache(N,md-2)
+  if [[ -z "$cache_file" ]]; then
+    murdoc_names | tr -d / > ~/.murdoc_names_cache
+  fi
+  fzf -1 --no-multi --query "${1:-m}" < ~/.murdoc_names_cache
+}
+
 function murdoc_env {
   want_envs SSHTO ".*"
-  local key=${1:?Missing Container Name}
-  ${=SSHTO} "sudo docker inspect $1" | jq -r '.[0].Config.Env[]'
+  local key=$(murdoc_namer ${1:?Missing Container Name})
+  ${=SSHTO} "sudo docker inspect $key" | jq -r '.[0].Config.Env[]'
 }
 
 # Get envs for service, reshape into envs for psql, load them and call psql.

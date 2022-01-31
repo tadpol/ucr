@@ -787,11 +787,12 @@ function jmq_inp {
   jmq_move "$1" In Progress
 }
 
-function jmq_todo {
+function jmq_as_status {
   want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local stat=${1:?Missing Issue Status}
   local jql=(
     "assignee = currentUser()"
-    "status = \"On Deck\" ORDER BY Rank"
+    "status = \"$stat\" ORDER BY Rank"
   )
   if [[ -z "${ucr_opts[all]}" ]]; then
     jql=(
@@ -807,6 +808,14 @@ function jmq_todo {
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req" | jq -r '.issues[] | [.key, .fields.summary] | @tsv'
+}
+
+function jmq_todo {
+  jmq_as_status "On Deck"
+}
+
+function jmq_doing {
+  jmq_as_status "In Progress"
 }
 
 function jmq_info {
@@ -840,13 +849,19 @@ function jmq_status {
   want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local jql=(
     "project in (${JMQ_PROJECTS})"
-    "sprint in openSprints()"
-    "sprint not in futureSprints()"
+    "status in (\"On Deck\",\"In Progress\")"
     "assignee = currentUser() ORDER BY Rank"
   )
+  if [[ -z "${ucr_opts[all]}" ]]; then
+    jql=(
+      "sprint in openSprints()"
+      "sprint not in futureSprints()"
+      $jql
+    )
+  fi
   local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary","status"] }')
 
-  curl -s https://exosite.atlassian.net/rest/api/2/search \
+  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req" | jq -r '.issues |

@@ -34,6 +34,16 @@ Keys are an argument with a `=`, such as `sid=qwerty`.  These are converted into
 
 After all options and keys have been removed from the argument list, the remaining args are used to search for a function.  This is done by prefixing the script name and adding `_` between args.  If a function is not found, the last argument is drop and searched again. If nothing is found after trying all subpatterns, then the function `ucr_function_not_found` is called.
 
+`ucr tasks` is useful to see what tasks have been defined.
+
+`ucr state` is useful to see how arguments have been parsed.
+
+### Config files
+
+If there is a `.env` file in the current directory, all of the key=values in it will get loaded into the ENV.
+
+A sectioned config file can be put at $HOME. (`.ucrrc`) This follows a simple INI format.  Everything before the first section will always get loaded.  Following sections can be loaded with the `--sec=<section>` option.  All of these are loaded into the ENV.
+
 ## Development
 
 ## Contributing

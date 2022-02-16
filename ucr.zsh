@@ -853,7 +853,7 @@ function jmq_info {
    Reporter: \(.fields.reporter.displayName)
    Assignee: \(.fields.assignee.displayName)
      Tester: \(.fields.customfield_10820.displayName)
-     Sprint: \(.fields.customfield_10025[]|.name)
+     Sprint: \(.fields.customfield_10025[]?|.name)
        Type: \(.fields.issuetype.name) (\(.fields.priority.name))
      Status: \(.fields.status.name) (Resolution: \(.fields.resolution.name))
     Watches: \(.fields.watches.watchCount)  Votes: \(.fields.votes.votes)
@@ -896,6 +896,29 @@ function jmq_open {
   fi
 
   open https://exosite.atlassian.net/browse/${(U)key}
+}
+
+function jmq_files {
+  local key=${1:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  if [[ $key =~ "^[a-zA-Z]+-[0-9]+$" ]]; then
+    key="key=$key"
+  fi
+  local fields=(
+    key
+    summary
+    attachment
+    )
+  local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
+
+  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req" | jq -r '.issues[] | .fields.attachment[] | [.filename, .mimeType, .content]|@tsv'
+
 }
 
 function murdoc_images {

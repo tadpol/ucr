@@ -862,9 +862,10 @@ Description: \(.fields.description)"'
 
 function jmq_status {
   want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local statuses=("On Deck" "In Progress" "code review")
   local jql=(
     "project in (${JMQ_PROJECTS})"
-    "status in (\"On Deck\",\"In Progress\")"
+    "status in (\"${(j:",":)statuses}\")"
     "assignee = currentUser() ORDER BY Rank"
   )
   if [[ -z "${ucr_opts[all]}" ]]; then
@@ -879,10 +880,10 @@ function jmq_status {
   v_curl -s https://exosite.atlassian.net/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
-    -d "$req" | jq -r '.issues |
+    -d "$req" | jq --argjson sts "[\"${(j:",":)statuses}\"]" -r '.issues |
   group_by(.fields.status.name) |
   map({"key": .[0].fields.status.name, "value": map([("- "+.key), .fields.summary] | @tsv) | join("\n")}) |
-  map(select([.key] | inside(["In Progress","On Deck"]))) |
+  map(select([.key] | inside($sts))) |
   map([(.key+":"), .value]) |
   flatten | 
   join("\n")'

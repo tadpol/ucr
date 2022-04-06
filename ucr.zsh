@@ -414,7 +414,7 @@ function ucr_service_schema {
   want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service=${1:?Need service name}
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/service/${(L)service}/schema \
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/service/${(L)service}/schema \
     -H "Authorization: token $UCR_TOKEN"
 }
 
@@ -442,6 +442,13 @@ function ucr_template_update {
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
+}
+
+function ucr_logs {
+  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/logs \
+    -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_tsdb_query {
@@ -553,6 +560,19 @@ function ucr_tsdb_write {
       "metrics": ([map(select(.value|not)|.key) | _nwise(2) | {"key": .[0], "value": .[1]}] | from_entries)
     })' --args -- "${@}" <<< $opt_req)
   v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/write \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_tsdb_multiWrite {
+  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+
+  # take STDIN
+  local req=$(jq)
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/multiWrite \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
@@ -694,6 +714,27 @@ function ucr_content_download {
 
   # ??? Should we extract the URL info and then run a curl on that right away?  Or would I rather not have that be automatic?
   # Or maybe options to select?
+}
+
+function ucr_ws_info {
+  get_token
+  local service_uuid=$(ucr_service_uuid websocket | jq -r .id)
+  local skid=${1:?Need websocket id}
+  local req=$(jq -c -n --arg skid "$skid" '{"socket_id": $skid}')
+
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_ws_list {
+  get_token
+  local service_uuid=$(ucr_service_uuid websocket | jq -r .id)
+
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" 
 }
 
 function jmq_q {

@@ -737,6 +737,8 @@ function ucr_ws_list {
     -H "Authorization: token $UCR_TOKEN" 
 }
 
+############################################################################################################
+
 function jmq_q {
   # --fields=*all to get everything
   local jql=($@)
@@ -903,7 +905,7 @@ Description: \(.fields.description)"'
 
 function jmq_status {
   want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
-  local statuses=("On Deck" "In Progress" "code review")
+  local statuses=("On Deck" "In Progress" "Code Coverage")
   local jql=(
     "project in (${JMQ_PROJECTS})"
     "status in (\"${(j:",":)statuses}\")"
@@ -940,6 +942,7 @@ function jmq_open {
   open https://exosite.atlassian.net/browse/${(U)key}
 }
 
+# list files/attachments on a ticket
 function jmq_files {
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
@@ -961,7 +964,10 @@ function jmq_files {
     --netrc \
     -d "$req" | jq -r '.issues[] | .fields.attachment[] | [.filename, .mimeType, .content]|@tsv'
 
+  # XXX: do not like this output. (things are too long.)
 }
+
+############################################################################################################
 
 function murdoc_images {
   want_envs SSHTO ".*"

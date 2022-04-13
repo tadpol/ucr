@@ -764,10 +764,10 @@ function jmq_pr {
   fi
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": ["key","summary"] }')
 
-  curl -s https://exosite.atlassian.net/rest/api/2/search \
+  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
-    -d "$req" | jq -r '.issues[] | .fields.summary + " (" + .key + ")"'
+    -d "$req" | jq -r '.issues[] | .fields.summary + " (" + .key + ")"' 2>/dev/null
 }
 
 function jmq_next {

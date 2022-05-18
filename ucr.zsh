@@ -374,7 +374,7 @@ function ucr_env_set {
 function ucr_services {
   want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig \
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }
@@ -777,12 +777,17 @@ function jmq_next {
     key=${JMQ_PROJECTS%%,*}-$key
   fi
 
+  local summary=$(v_curl -s --netrc https://exosite.atlassian.net/rest/api/2/issue/${key}\?fields=summary | \
+    jq -r .fields.summary )
+
   # Get what transitions can be made.
   local transitions=$(v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/transitions --netrc)
 
   # Display menu list and ask which to take. (If only one, then just take that without asking)
   local trn=$(jq -r '.transitions[] | [.id, .name] | @tsv' <<< $transitions | fzf \
-    --select-1 --no-multi --nth=2.. --with-nth=2.. --height 30% --prompt="Follow which transition? ")
+    --select-1 --no-multi --nth=2.. --with-nth=2.. --height 30% \
+    --prompt="Follow which transition? " \
+    --header="Summary: ${summary}")
   if [[ -z "$trn" ]]; then
     exit
   fi
@@ -859,6 +864,22 @@ function jmq_todo {
 
 function jmq_doing {
   jmq_as_status "In Progress"
+}
+
+function jmq_backlog {
+  want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local jql=(
+    "assignee = currentUser()"
+    "project in (${JMQ_PROJECTS})"
+    "(sprint is EMPTY OR Sprint not in (openSprints(), futureSprints()))"
+    "status in (\"On Deck\", \"In Progress\", \"Code Coverage\") ORDER BY Rank"
+  )
+  local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary"] }')
+
+  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req" | jq -r '.issues[] | [.key, .fields.summary] | @tsv'
 }
 
 function jmq_info {

@@ -755,6 +755,7 @@ function jmq_q {
 
 function jmq_pr {
   local key=${1:?Missing Issue Key}
+  key=${key##*/}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key

@@ -387,7 +387,7 @@ function ucr_service_usage {
   want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service=${1:?Need service name}
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${(L)service}/info \
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${(L)service}/info \
     -H "Authorization: token $UCR_TOKEN"
 }
 
@@ -735,6 +735,25 @@ function ucr_ws_list {
   v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" 
+}
+
+function ucr_device_list {
+  get_token
+  local service_uuid=$(ucr_service_uuid device2 | jq -r .id)
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listIdentities \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_device_state {
+  local did=${1:?Need device id}
+  get_token
+  local service_uuid=$(ucr_service_uuid device2 | jq -r .id)
+
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/getIdentityState \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "{\"identity\": \"${did}\" }"
 }
 
 ############################################################################################################

@@ -745,6 +745,10 @@ function ucr_device_list {
     -H "Authorization: token $UCR_TOKEN"
 }
 
+function ucr_device_info {
+  ucr_service_details device2
+}
+
 function ucr_device_state {
   local did=${1:?Need device id}
   get_token
@@ -754,6 +758,44 @@ function ucr_device_state {
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "{\"identity\": \"${did}\" }"
+}
+
+# This sets via the cloud side API.
+# function ucr_device_state_set { }
+
+function ucr_device_write {
+  # This writes via the external HTTP API.
+  # Only one resource at a time for now. Could expand to allow multiple, but not needed today.
+  # ucr device write <did> <resource> <value>
+  local did=${1:?Need device id}
+  local res=${2:?Need a resource to write}
+  local val=${3:?Need a value}
+  get_token
+  local details=$(ucr_service_details device2)
+  local d_host=$(jq -r .parameters.fqdn <<< $details)
+  local vm=$(jq -r .solution_id <<< $details)
+
+  # server actually only supports a subset of form-urlencoded, so manually pack it
+  val=$(jq -r '@uri' <<< $val)
+  v_curl -s https://${d_host}/onep:v1/stack/alias \
+    -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
+    -H "X-Exosite-CIK: ${UCR_CIK}" \
+    -d "${res}=${val}"
+}
+
+function ucr_device_activate {
+  # This activates via the external HTTP API.
+  local did=${1:?Need device id}
+  get_token
+  local details=$(ucr_service_details device2)
+  local d_host=$(jq -r .parameters.fqdn <<< $details)
+  local vm=$(jq -r .solution_id <<< $details)
+
+  # server actually only supports a subset of form-urlencoded, so manually pack it
+  did=$(jq -r '@uri' <<< $did)
+  v_curl -s https://${d_host}/provision/activate \
+    -d "id=${did}" \
+    -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8'
 }
 
 ############################################################################################################

@@ -994,7 +994,12 @@ function jmq_status {
     "status in (\"${(j:",":)statuses}\")"
     "assignee = currentUser() ORDER BY Rank"
   )
-  if [[ -z "${ucr_opts[all]}" ]]; then
+  if [[ -n "${ucr_opts[future]}" ]]; then
+    jql=(
+      "sprint in futureSprints()"
+      $jql
+    )
+  elif [[ -z "${ucr_opts[all]}" ]]; then # if not all do this…
     jql=(
       "sprint in openSprints()"
       "sprint not in futureSprints()"

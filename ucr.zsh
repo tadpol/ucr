@@ -1055,6 +1055,28 @@ function jmq_files {
   # XXX: do not like this output. (things are too long.)
 }
 
+function jmq_attach {
+  local key=${1:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  shift
+  if [[ $# = 0 ]]; then
+    echo "Missing files to upload"
+    exit 2
+  fi
+
+  for f in "$@"; do
+    # TODO: if f is a directory, zip it first
+    v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/attachments \
+    	-H 'X-Atlassian-Token: nocheck' \
+      --netrc \
+      -F "file=@${f}"
+  done
+
+}
+
 ############################################################################################################
 
 function murdoc_images {

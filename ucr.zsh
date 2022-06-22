@@ -789,10 +789,9 @@ function ucr_device_activate {
   get_token
   local details=$(ucr_service_details device2)
   local d_host=$(jq -r .parameters.fqdn <<< $details)
-  local vm=$(jq -r .solution_id <<< $details)
 
   # server actually only supports a subset of form-urlencoded, so manually pack it
-  did=$(jq -r '@uri' <<< $did)
+  # did=$(jq -r '@uri' <<< $did)
   v_curl -s https://${d_host}/provision/activate \
     -d "id=${did}" \
     -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8'
@@ -801,6 +800,7 @@ function ucr_device_activate {
 ############################################################################################################
 
 function jmq_q {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   # --fields=*all to get everything
   local jql=($@)
   local fields=(key summary)
@@ -808,13 +808,14 @@ function jmq_q {
     fields=(${(s:,:)ucr_opts[fields]})
   fi
   local req=$(jq -n -c --arg jql "${(j: :)jql}" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
-  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req"
 }
 
 function jmq_pr {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${1:?Missing Issue Key}
   key=${key##*/}
   if [[ $key =~ "^[0-9]+$" ]];then
@@ -826,24 +827,25 @@ function jmq_pr {
   fi
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": ["key","summary"] }')
 
-  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req" | jq -r '.issues[] | .fields.summary + " (" + .key + ")"' 2>/dev/null
 }
 
 function jmq_next {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
 
-  local summary=$(v_curl -s --netrc https://exosite.atlassian.net/rest/api/2/issue/${key}\?fields=summary | \
+  local summary=$(v_curl -s --netrc https://${JMQ_HOST}/rest/api/2/issue/${key}\?fields=summary | \
     jq -r .fields.summary )
 
   # Get what transitions can be made.
-  local transitions=$(v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/transitions --netrc)
+  local transitions=$(v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions --netrc)
 
   # Display menu list and ask which to take. (If only one, then just take that without asking)
   local trn=$(jq -r '.transitions[] | [.id, .name] | @tsv' <<< $transitions | fzf \
@@ -855,7 +857,7 @@ function jmq_next {
   fi
   local transition_id=$(awk '{print $1}' <<< $trn )
   # Take it
-  v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/transitions \
+  v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
     --netrc \
     -H 'Content-Type: application/json' \
     -d "{\"transition\":{\"id\": ${transition_id} }}"
@@ -864,6 +866,7 @@ function jmq_next {
 # Move tickets to named state
 # jmq move FOO-0000 In Progress
 function jmq_move {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
@@ -877,7 +880,7 @@ function jmq_move {
   local state="${(j: :)*}"
 
   # Get what transitions can be made.
-  local transitions=$(v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/transitions --netrc)
+  local transitions=$(v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions --netrc)
 
   local inp_id=$(jq --arg nme "$state" '.transitions[]|select(.name==$nme)|.id' <<< $transitions)
   if [[ -z "$inp_id" ]]; then
@@ -885,7 +888,7 @@ function jmq_move {
     exit
   fi
 
-  v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/transitions \
+  v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
     --netrc \
     -H 'Content-Type: application/json' \
     -d "{\"transition\":{\"id\": ${inp_id} }}"
@@ -898,7 +901,7 @@ function jmq_inp {
 }
 
 function jmq_as_status {
-  want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local stat=${1:?Missing Issue Status}
   local jql=(
     "assignee = currentUser()"
@@ -914,7 +917,7 @@ function jmq_as_status {
   fi
   local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary"] }')
 
-  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req" | jq -r '.issues[] | [.key, .fields.summary] | @tsv'
@@ -929,7 +932,7 @@ function jmq_doing {
 }
 
 function jmq_backlog {
-  want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local jql=(
     "assignee = currentUser()"
     "project in (${JMQ_PROJECTS})"
@@ -938,13 +941,14 @@ function jmq_backlog {
   )
   local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary"] }')
 
-  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req" | jq -r '.issues[] | [.key, .fields.summary] | @tsv'
 }
 
 function jmq_info {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
@@ -970,7 +974,7 @@ function jmq_info {
     )
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
-  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req" | jq -r '.issues[] | 
@@ -987,7 +991,7 @@ Description: \(.fields.description)"'
 }
 
 function jmq_status {
-  want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local statuses=("On Deck" "In Progress" "Code Coverage")
   local jql=(
     "project in (${JMQ_PROJECTS})"
@@ -1008,7 +1012,7 @@ function jmq_status {
   fi
   local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary","status"] }')
 
-  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req" | jq --argjson sts "[\"${(j:",":)statuses}\"]" -r '.issues |
@@ -1021,17 +1025,19 @@ function jmq_status {
 }
 
 function jmq_open {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
 
-  open https://exosite.atlassian.net/browse/${(U)key}
+  open https://${JMQ_HOST}/browse/${(U)key}
 }
 
 # list files/attachments on a ticket
 function jmq_files {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
@@ -1047,7 +1053,7 @@ function jmq_files {
     )
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
-  v_curl -s https://exosite.atlassian.net/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
     -d "$req" | jq -r '.issues[] | .fields.attachment[] | [.filename, .mimeType, .content]|@tsv'
@@ -1056,6 +1062,7 @@ function jmq_files {
 }
 
 function jmq_attach {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${1:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
@@ -1069,7 +1076,7 @@ function jmq_attach {
 
   for f in "$@"; do
     # TODO: if f is a directory, zip it first
-    v_curl -s https://exosite.atlassian.net/rest/api/2/issue/${key}/attachments \
+    v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/attachments \
     	-H 'X-Atlassian-Token: nocheck' \
       --netrc \
       -F "file=@${f}"
@@ -1112,6 +1119,7 @@ EOS
 function murdoc_namer {
   # If exists AND younger than 2 days, then cache_file is not empty. (use the cache file)
   # Otherwise, update cache
+  # TODO: this is broken if the cache file does not exist.
   cache_file=~/.murdoc_names_cache(N,md-2)
   if [[ -z "$cache_file" ]]; then
     murdoc_names | tr -d / > ~/.murdoc_names_cache

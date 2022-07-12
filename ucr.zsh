@@ -1133,6 +1133,26 @@ function murdoc_env {
   ${=SSHTO} "sudo docker inspect $key" | jq -r '.[0].Config.Env[]'
 }
 
+# Get envs for service, reshape into envs for mongo, load them and call mongo.
+function murdoc_mongo {
+  local prefix=LOG_
+  if [[ -n "${ucr_opts[prefix]}" ]]; then
+    prefix=${ucr_opts[prefix]}
+  fi
+
+  ens=($(murdoc_env $1 | grep ^${prefix}MONGODB_ |sed -e "s/^${prefix}//" ))
+
+  typeset -A mongo_keys
+  for r in $ens; do
+    if [[ "$r" =~ "([a-zA-Z0-9_]+)=(.*)" ]]; then
+      mongo_keys[${match[1]}]=${match[2]}
+    fi
+  done
+
+  #only URL for now…
+  mongo "${mongo_keys[MONGODB_URL]}"
+}
+
 # Get envs for service, reshape into envs for psql, load them and call psql.
 function murdoc_psql {
   local ens=($(murdoc_env $1 | grep DB_ | sed -e 's/^DB_/PG/'))

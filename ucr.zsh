@@ -679,11 +679,18 @@ function ucr_insight_functions {
   get_token
   local service=${1:?Need Insight Service Name}
   local service_uuid=$(ucr_service_uuid ${(L)service} | jq -r .id)
+  local opt_req=$(
+    options_to_json \
+    limit "[1-9][0-9]*" \
+    group_id "[0-9A-Za-z_]*"
+  )
+  [[ -z "$opt_req" ]] && exit 4
+  local req=$(jq -c '{"limit":1000, "group_id":""} + .' <<< $opt_req)
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listInsights \
+  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listInsights \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
-    -d '{"limit":1000}'
+    -d "$req"
 }
 
 function ucr_content_list {

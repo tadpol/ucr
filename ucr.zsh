@@ -427,6 +427,24 @@ function ucr_business_solutions {
     -H "Authorization: token $UCR_TOKEN"
 }
 
+function ucr_business_solution_delete {
+  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_BID "^[a-zA-Z0-9]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+
+  v_curl -s "https://${UCR_HOST}/api:1/business/${UCR_BID}/solution/${UCR_SID}" -X DELETE \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_business_get {
+  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_BID "^[a-zA-Z0-9]+$"
+  get_token
+
+  v_curl -s "https://${UCR_HOST}/api:1/business/${UCR_BID}" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
 function ucr_template_update {
   want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token

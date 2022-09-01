@@ -694,21 +694,54 @@ function ucr_insight_functions {
 }
 
 function ucr_content_list {
+  # list [--op=AND|OR] [--stop=#] [<prefix filter>] [<tag name filter>@<tag value filter> ...]
   get_token
   local service_uuid=$(ucr_service_uuid content | jq -r .id)
   local opt_req=$(options_to_json \
-    limit "^[1-9][0-9]*$" \
-    op "^(AND|OR)$" \
-    cursor ".+"
+    op "^(AND|OR)$" 
   )
   [[ -z "$opt_req" ]] && exit 4
 
-  local req=$(jq -c '. + {"prefix": $ARGS.positional[0] } | with_entries(select( .value != null ))' --args -- "${@}" <<< $opt_req)
+  local p_req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
+    {
+      "tags": (map(select(.value)) | from_entries | tojson),
+      "prefix": (map(select(.value|not)|.key) | first),
+      "full": true
+    })' --args -- "${@}" <<< $opt_req)
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: token $UCR_TOKEN" \
-    -d "$req"
+  local prior_count=1
+  local total_count=0
+  local stop_after=${ucr_opts[stop]:-999999999}
+  local cursor=''
+
+  # first call always happens and has no cursor.
+  local ret=$(
+    v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+      -H 'Content-Type: application/json' \
+      -H "Authorization: token $UCR_TOKEN" \
+      -d "$p_req"
+  )
+  prior_count=$(jq -r length <<< $ret)
+  total_count=$(( total_count + prior_count ))
+  cursor=$(jq -r 'last | .id' <<< $ret)
+  # Now 'stream' results
+  jq -c -M '.[]' <<< $ret
+
+  # Loop advancing cursor until an empty reply
+  while [[ prior_count -gt 0 && total_count -lt stop_after ]]; do
+    local req=$(jq -c --arg cursor "$cursor" '. + {"cursor": $cursor}' <<< $p_req)
+    local ret=$(
+      v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+        -H 'Content-Type: application/json' \
+        -H "Authorization: token $UCR_TOKEN" \
+        -d "$req"
+    )
+    prior_count=$(jq -r length <<< $ret)
+    total_count=$(( total_count + prior_count ))
+    cursor=$(jq -r 'last | .id' <<< $ret)
+    # Now 'stream' results
+    jq -c -M '.[]' <<< $ret
+  done
 }
 
 function ucr_content_deleteMulti {

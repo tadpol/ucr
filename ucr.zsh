@@ -64,7 +64,7 @@ function task_runner {
   local ucr_cmdline=()
   local double_dash=false
 
-  # First pass, look for long options, short options, and env pairGs
+  # First pass, look for long options, short options, and env pairs
   for arg in ${(s: :)*}; do
     if [[ "$double_dash" = "true" ]]; then
       leftovers[${#leftovers}+1]=$arg
@@ -274,6 +274,7 @@ function get_token {
   fi
 }
 
+# Add a wrapper to curl that will print out the curls.
 function v_curl {
   # When --curl, print out a copy/pastable curl … that is also nice-ish to read.
   if [[ -n "$ucr_opts[curl]" ]]; then
@@ -307,7 +308,7 @@ function v_curl {
 
 ##############################################################################
 # Below is the functions defined as tasks callable from cmdline args
-# They are all prefixed with `${(L)argv0}_`
+# The first set a for every tool, so they are all prefixed with `${(L)argv0}_`
 
 # This is called if a function based on the passed args couldn't be found.
 function ${(L)argv0}_function_not_found {
@@ -339,42 +340,49 @@ function ${(L)argv0}_state {
   done
 }
 
+##############################################################################
+# Below are the tool specific functions
+# They start with the tool name which must match the script file. (that is ARGV[0])
+
+# Repeating this in every command gets messy; so we'll do it once here.
+ucr_base_url='${UCR_SCHEME:-https}://${UCR_HOST}/${UCR_URL_PREFIX:-api:1}'
+
 function ucr_token {
   get_token
   echo $UCR_TOKEN
 }
 
 function ucr_dump_script {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/route/${UCR_SID}/script \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/route/${UCR_SID}/script \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_env_get {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/env \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/env \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_env_set {
   # <key> <value> [<key <value> …]
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local req=$(jq -n -c '[$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries' --args -- "${@}")
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/env \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/env \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_services {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }
@@ -384,69 +392,69 @@ function ucr_service_uuid {
 }
 
 function ucr_service_usage {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service=${1:?Need service name}
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${(L)service}/info \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${(L)service}/info \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_service_details {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service=${1:?Need service name}
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${(L)service} \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${(L)service} \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_service_add {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service=${1:?Need service name}
   local req=$(jq -n -c --arg service "${(L)service}" --arg sid "$UCR_SID" '{"solution_id": $sid, "service": $service}')
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${(L)service} \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${(L)service} \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_service_schema {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service=${1:?Need service name}
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/service/${(L)service}/schema \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/service/${(L)service}/schema \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_business_solutions {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_BID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_BID "^[a-zA-Z0-9]+$"
   get_token
 
-  v_curl -s "https://${UCR_HOST}/api:1/business/${UCR_BID}/solution/" \
+  v_curl -s "${(e)ucr_base_url}/business/${UCR_BID}/solution/" \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_business_solution_delete {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_BID "^[a-zA-Z0-9]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_BID "^[a-zA-Z0-9]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
 
-  v_curl -s "https://${UCR_HOST}/api:1/business/${UCR_BID}/solution/${UCR_SID}" -X DELETE \
+  v_curl -s "${(e)ucr_base_url}/business/${UCR_BID}/solution/${UCR_SID}" -X DELETE \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_business_get {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_BID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_BID "^[a-zA-Z0-9]+$"
   get_token
 
-  v_curl -s "https://${UCR_HOST}/api:1/business/${UCR_BID}" \
+  v_curl -s "${(e)ucr_base_url}/business/${UCR_BID}" \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_template_update {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local repo_url
   if [[ $# > 0 ]]; then
@@ -456,23 +464,23 @@ function ucr_template_update {
     repo_url+="/tree/$(git rev-parse --abbrev-ref HEAD)"
   fi
   local req=$(jq -n -c --arg url "$repo_url" '{"url": $url}')
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/update \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/update \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_logs {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/logs \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/logs \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_tsdb_query {
   # metric names are just args, tags are <tag name>@<tag value>
   # others are all --options=value
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
   # Validate a list of the options we will care about.
@@ -498,7 +506,7 @@ function ucr_tsdb_query {
       "metrics": map(select(.value | not) | .key)
     })' --args -- "${@}" <<< $opt_req)
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/query \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/query \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
@@ -506,7 +514,7 @@ function ucr_tsdb_query {
 
 function ucr_tsdb_recent {
   # recent <tag name> <metrics>… @<tag values>… 
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   local tag_name=${1:?Need tag name}
   shift
   [[ $# == 0 ]] && echo "Missing metrics and tag values" >&2 && exit 2
@@ -519,46 +527,50 @@ function ucr_tsdb_recent {
     "tag_values": ($ARGS.positional | map(select(. | startswith("@"))) | map(split("@") | .[1] )),  
   }' --args -- "${@}")
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/recent \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/recent \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_tsdb_list_tags {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listTags \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listTags \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" | jq '.tags |keys'
 }
 
 function ucr_tsdb_list_metrics {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listMetrics \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listMetrics \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" | jq .metrics
   # someday: Look for .next, and handle repeated calls if need be
 }
 
 function ucr_tsdb_imports {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/importJobList \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/importJobList \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_tsdb_import_info {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
   local job_id=${1:?Need job id argument}
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/importJobInfo \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/importJobInfo \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "{\"job_id\":\"${job_id}\"}"
@@ -566,7 +578,7 @@ function ucr_tsdb_import_info {
 
 function ucr_tsdb_write {
   # write [--ts=<timestamp>] <metric> <value> [<metric> <value> …] [<tag>@<value> …]
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
 
@@ -577,50 +589,53 @@ function ucr_tsdb_write {
     { "tags": (map(select(.value)) | from_entries),
       "metrics": ([map(select(.value|not)|.key) | _nwise(2) | {"key": .[0], "value": .[1]}] | from_entries)
     })' --args -- "${@}" <<< $opt_req)
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/write \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/write \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_tsdb_multiWrite {
-  want_envs UCR_HOST "^[\.A-Za-z0-9-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
 
   # take STDIN
   local req=$(jq)
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/multiWrite \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/multiWrite \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_keystore_list {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   local match=${1:-*}
   local req=$(jq -n -c --arg match "$match" '{"match":$match,"cursor":0}')
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_keystore_get {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   [[ $# == 0 ]] && echo "Missing keys to get" >&2 && exit 2
   local req=$(jq -n -c '{"keys":$ARGS.positional}' --args -- "${@}")
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/mget \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/mget \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_keystore_set {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   local key=${1:?Need key argument}
@@ -631,25 +646,27 @@ function ucr_keystore_set {
 
   local req=$(jq -n -c --arg key "$key" --arg value "$value" '{"key":$key,"value":$value}')
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/set \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/set \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_keystore_delete {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   [[ $# == 0 ]] && echo "Missing keys to delete" >&2 && exit 2
   local req=$(jq -n -c '{"keys":$ARGS.positional}' --args -- "${@}")
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/mdelete \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/mdelete \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"  
 }
 
 function ucr_keystore_cmd {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   local cmd=${1:?Need command argument}
@@ -659,23 +676,25 @@ function ucr_keystore_cmd {
     '{"key":$key,"command":$cmd, "args": $ARGS.positional}' \
     --args -- "${@}")
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/command \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/command \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req" 
 }
 
 function ucr_insight_info {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service=${1:?Need Insight Service Name}
   local service_uuid=$(ucr_service_uuid ${(L)service} | jq -r .id)
 
-  curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_insight_functions {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service=${1:?Need Insight Service Name}
   local service_uuid=$(ucr_service_uuid ${(L)service} | jq -r .id)
@@ -687,13 +706,14 @@ function ucr_insight_functions {
   [[ -z "$opt_req" ]] && exit 4
   local req=$(jq -c '{"limit":1000, "group_id":""} + .' <<< $opt_req)
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listInsights \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listInsights \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_content_list {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   # list [--op=AND|OR] [--stop=#] [<prefix filter>] [<tag name filter>@<tag value filter> ...]
   get_token
   local service_uuid=$(ucr_service_uuid content | jq -r .id)
@@ -716,7 +736,7 @@ function ucr_content_list {
 
   # first call always happens and has no cursor.
   local ret=$(
-    v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+    v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
       -H 'Content-Type: application/json' \
       -H "Authorization: token $UCR_TOKEN" \
       -d "$p_req"
@@ -731,7 +751,7 @@ function ucr_content_list {
   while [[ prior_count -gt 0 && total_count -lt stop_after ]]; do
     local req=$(jq -c --arg cursor "$cursor" '. + {"cursor": $cursor}' <<< $p_req)
     local ret=$(
-      v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+      v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
         -H 'Content-Type: application/json' \
         -H "Authorization: token $UCR_TOKEN" \
         -d "$req"
@@ -745,17 +765,19 @@ function ucr_content_list {
 }
 
 function ucr_content_deleteMulti {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid content | jq -r .id)
   local req=$(jq -n -c '{ "body" : $ARGS.positional }' --args -- "$@")
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/deleteMulti \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/deleteMulti \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_content_download {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid content | jq -r .id)
   local cid=${1:?Need content id to download}
@@ -765,7 +787,7 @@ function ucr_content_download {
   [[ -z "$opt_req" ]] && exit 4
   local req=$(jq -c --arg cid "$cid" '. + {"id": $cid }' <<< $opt_req)
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/download \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/download \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
@@ -775,30 +797,33 @@ function ucr_content_download {
 }
 
 function ucr_ws_info {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid websocket | jq -r .id)
   local skid=${1:?Need websocket id}
   local req=$(jq -c -n --arg skid "$skid" '{"socket_id": $skid}')
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
 }
 
 function ucr_ws_list {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid websocket | jq -r .id)
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" 
 }
 
 function ucr_device_list {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid device2 | jq -r .id)
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listIdentities \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listIdentities \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }
@@ -808,11 +833,12 @@ function ucr_device_info {
 }
 
 function ucr_device_state {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   local did=${1:?Need device id}
   get_token
   local service_uuid=$(ucr_service_uuid device2 | jq -r .id)
 
-  v_curl -s https://${UCR_HOST}/api:1/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/getIdentityState \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/getIdentityState \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "{\"identity\": \"${did}\" }"

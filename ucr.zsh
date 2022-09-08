@@ -576,6 +576,130 @@ function ucr_tsdb_import_info {
     -d "{\"job_id\":\"${job_id}\"}"
 }
 
+function ucr_tsdb_exports {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/exportJobList \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_tsdb_export_info {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+  local job_id=${1:?Need job id argument}
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/exportJobInfo \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "{\"job_id\":\"${job_id}\"}"
+}
+
+function ucr_tsdb_export {
+  # metric names are just args, tags are <tag name>@<tag value>, formats are <metric>#<action>#<value>
+  #
+  # Formating parameters:
+  # ORDER MATTERS! FE: round before label is different than label before round
+  #
+  # <metric>#label#<string>
+  # 3456789#label#foo
+  #   Prefix value with 'foo'
+  #
+  # <metric>#round#<number>
+  # 3456789#round#9
+  #   Round by 9
+  #
+  # <metric>#rename#<string>
+  # 34567890#rename#bob
+  #   Replace metric name with 'bob'
+  #
+  # <metric>#replace#<regexp>#<replace>
+  # 123456#replace#([0-9])([0-9])#\2-\1
+  #   Do regexp on value. replace uses '\1' for capture groups.
+  #
+  # <metric>|timestamp#datetime#<date format>#<offset>
+  # 98765#datetime#year_%Y#-4
+  #   Apply a datetime format to the value. Value should be microseconds since the EPOCH.
+  #   Can use the `--timestamp` and `--offset` to shortcut for the `timestamp` column.
+
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+  # Validate a list of the options we will care about.
+  # Ignored query options: (passing them does nothing)
+  #  mode "(merge|split)"
+  # Illegal query options: (passing them returns error)
+  #  sampling_size "[1-9][0-9]*(u|ms|s|m|h|d|w)?"
+  #  aggregate "((avg|min|max|count|sum),?)+" 
+  local opt_req=$(
+    options_to_json \
+    start_time "[1-9][0-9]*(u|ms|s)?" \
+    end_time "[1-9][0-9]*(u|ms|s)?" \
+    relative_start "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+    relative_end "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+    limit "[1-9][0-9]*" \
+    epoch "(u|ms|s)" \
+    fill "(null|previous|none|[1-9][0-9]*|~s:.+)" \
+    order_by "(desc|asc)"
+  )
+  [[ -z "$opt_req" ]] && exit 4
+
+  # A few filtering only options.
+  # These are all just once things, so it is cleaner to have them as options than as the '#' syntax
+  local formated=$(
+    options_to_json \
+    timestamp ".*"\
+    offset "-?[1-9][0-9]*" \
+    include "[a-zA-Z0-9_,]+"
+  )
+  [[ -z "$formated" ]] && exit 4
+
+  local filename=${ucr_opts[output]}
+  if [[ -z "$filename" ]]; then
+    filename="$(date +%s)_auto.csv"
+  fi
+  # if [[ "$filename" =~ "[\r\n\t\f\v ]" ]]; then
+  #   echo "output file name cannot have spaces ($filename)" >&2
+  #   exit 5
+  # fi
+
+
+  local req=$(jq --arg fn "$filename" --argjson ft "$formated" '{
+    "query": (. + ($ARGS.positional | {
+      "tags": ([.[] | select(contains("@")) | split("@") | {"key": .[0], "value": .[1]}] | group_by(.key) |
+        map({"key":.[0].key,"value":(map(.value) | if length==1 then first else . end)}) | from_entries),
+      "metrics": [.[]|select(contains("@") or contains("#")|not)]
+    })),
+    "filename": $fn,
+    "format": (($ARGS.positional | [.[] | select(contains("#")) | split("#") | {
+        "metric": .[0], "fn": .[1], "a": .[2], "b": .[3]
+      }] | group_by(.metric) | map({"key":.[0].metric, "value": map(
+        if .fn == "round" then {"round": .a|tonumber}
+        elif .fn == "replace" then {replace: { match: .a, to: .b } }
+        elif .fn == "datetime" then {datetime: { dt_format: (.a // "%Y-%m-%dT%H:%M:%S.%f%z"), offset: (.b // 0 | tonumber) }}
+        else { (.fn): .a }
+        end
+      )}) | from_entries ) + if ($ft|has("timestamp") or has("offset")) then
+        { "timestamp": [{datetime:{dt_format: ($ft.timestamp // "%Y-%m-%dT%H:%M:%S.%f%z"), offset: ($ft.offset // 0 | tonumber)}}] }
+      else
+        {}
+      end + if ($ft|has("include")) then
+        {"tags": [{normalize: $ft.include|split(",")}]}
+      else
+        {tags: [{discard: true}]}
+      end
+    )
+  }' --args -- "${@}" <<< $opt_req)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/export \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
 function ucr_tsdb_write {
   # write [--ts=<timestamp>] <metric> <value> [<metric> <value> …] [<tag>@<value> …]
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"

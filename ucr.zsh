@@ -727,7 +727,7 @@ function ucr_content_list {
       "tags": (map(select(.value)) | from_entries | tojson),
       "prefix": (map(select(.value|not)|.key) | first),
       "full": true
-    })' --args -- "${@}" <<< $opt_req)
+    } | del(.[] | select(. == null)))' --args -- "${@}" <<< $opt_req)
 
   local prior_count=1
   local total_count=0
@@ -764,7 +764,7 @@ function ucr_content_list {
   done
 }
 
-function ucr_content_deleteMulti {
+function ucr_content_delete {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid content | jq -r .id)

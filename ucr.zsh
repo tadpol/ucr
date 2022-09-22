@@ -580,8 +580,13 @@ function ucr_tsdb_exports {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+  local opt_req=$(
+    options_to_json \
+    limit "[1-9][0-9]*"
+  )
+  [[ -z "$opt_req" ]] && exit 4
 
-  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/exportJobList \
+  v_curl -s "${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/exportJobList?limit=${ucr_opts[limit]:-100}" \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN"
 }

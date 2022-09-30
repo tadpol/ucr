@@ -841,6 +841,19 @@ function ucr_insight_functions {
     -d "$req"
 }
 
+function ucr_content_info {
+  get_token
+  local service_uuid=$(ucr_service_uuid content | jq -r .id)
+  local id=${1:?Need file id}
+
+  local req="{\"id\": \"$id\"}"
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
 function ucr_content_list {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   # list [--op=AND|OR] [--stop=#] [<prefix filter>] [<tag name filter>@<tag value filter> ...]

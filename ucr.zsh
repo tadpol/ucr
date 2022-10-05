@@ -266,10 +266,18 @@ function password_for {
 # Not worth the extra work.
 function get_token {
   if [[ -z "$UCR_TOKEN" ]]; then
-    local psd=$(password_for $UCR_HOST $UCR_USER)
     # echo "X: $psd" >&2
     # Murano doesn't accept basic auth…
-    local req=$(jq -n --arg psd "$psd" --arg user "$UCR_USER" '{"email": $user, "password": $psd}')
+    local req=""
+    if [[ "$UCR_USER" =~ '^op:' || "$UCR_PASSWORD" =~ '^op:' ]] && (which op >/dev/null); then
+      # They have 1password and are using it, so op run
+      req=$(op run --no-masking -- jq -n '{"email": $ENV.UCR_USER, "password": $ENV.UCR_PASSWORD}')
+    else
+      # Try other ways
+      local psd=$(password_for $UCR_HOST $UCR_USER)
+      req=$(jq -n --arg psd "$psd" '{"email": $ENV.UCR_USER, "password": $psd}')
+    fi
+    # echo "X: $req" >&2
     export UCR_TOKEN=$(curl -s https://${UCR_HOST}/api:1/token/ -H 'Content-Type: application/json' -d "$req" | jq -r .token)
   fi
 }

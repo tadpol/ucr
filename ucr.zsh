@@ -1033,6 +1033,18 @@ function ucr_device_activate {
 
 ############################################################################################################
 
+function dtog_function_not_found {
+  for i in "$@"; do
+    if [[ ${#i} < 33 ]]; then
+      echo "$i" | sed -E 's/^(........)(....)(....)(....)(............)/\1-\2-\3-\4-\5/' | tr A-F a-f
+    else
+      echo "$i" | tr -d - | tr A-F a-f
+    fi
+  done
+}
+
+############################################################################################################
+
 function jmq_q {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   # --fields=*all to get everything

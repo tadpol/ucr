@@ -387,6 +387,14 @@ function ucr_env_set {
     -d "$req"
 }
 
+function ucr_solution_info {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID} \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
 function ucr_services {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token

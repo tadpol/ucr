@@ -3,11 +3,16 @@
     "auth",
     "cmdline",
     "dtog",
+    "mdelete",
+    "mget",
     "murdoc",
     "netrc",
+    "nocheck",
     "nwise",
+    "PGURL",
     "psql",
     "rediscli",
-    "sshto"
+    "sshto",
+    "tojson"
   ]
 }

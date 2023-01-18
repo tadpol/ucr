@@ -1289,6 +1289,18 @@ function jmq_open {
   open https://${JMQ_HOST}/browse/${(U)key}
 }
 
+function jmq_mdl {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local key=${1:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+
+  print "[${(U)key}](https://${JMQ_HOST}/browse/${(U)key})"
+
+}
+
 # list files/attachments on a ticket
 function jmq_files {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"

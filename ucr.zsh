@@ -1474,6 +1474,123 @@ function murdoc_redis {
   fi
 }
 
+############################################################################################################
+
+function worldbuilder_namer {
+  want_envs WORLDBUILDER_FILE "^.+$"
+
+  while read -r line; do
+    if [[ "$line" =~ "^\[([^]]*)\]"  ]]; then 
+      echo ${match[1]}
+    fi
+  done < "$WORLDBUILDER_FILE" | fzf -1 --no-multi --query "${1:-m}"
+}
+
+function worldbuilder_build {
+  want_envs WORLDBUILDER_FILE "^.+$"
+  local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+
+  want_envs dir "^.+$" image "^.+$" commit "^.*$"
+  worldbuilder_one "$dir" "$image" "$commit"
+}
+
+function worldbuilder_one {
+  local dir=${1:?Need directory to build}
+  local image=${2:?Need image name}
+  local commit=$3
+  local base=$PWD
+
+  (
+    set -x
+    cd ${dir}
+
+    ## BUILD
+    local remember=""
+    if [[ -n "$commit" ]]; then
+      remember=$(git symbolic-ref --quiet HEAD 2>/dev/null)
+      git checkout "${commit}"
+    fi
+
+    # Someday, rewrite _all_ the dockerfiles to use --ssh
+    if grep -s murano-service-ssh-key Dockerfile >/dev/null; then
+      cp ~/.ssh/murano_builder murano-service-ssh-key
+    fi
+
+    cp Dockerfile Dockerfile.annotated
+    local extra_envs=(
+    OPENSHIFT_BUILD_NAME="developer.$(date +%s)"
+    OPENSHIFT_BUILD_NAMESPACE="$(hostname)"
+    OPENSHIFT_BUILD_SOURCE="$(git remote get-url origin)"
+    OPENSHIFT_BUILD_REFERENCE="$(git symbolic-ref --quiet HEAD 2>/dev/null)"
+    OPENSHIFT_BUILD_COMMIT="$(git rev-parse HEAD)"
+    )
+    echo "ENV ${extra_envs}" >> Dockerfile.annotated
+
+    docker build -f Dockerfile.annotated -t "${image}" .
+    test -e murano-service-ssh-key && rm murano-service-ssh-key
+    rm Dockerfile.annotated
+
+    ## SAVE
+    docker save -o ${base}/_images/${${image/%:*}:t}.tar "${image}"
+
+    [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
+  )
+}
+
+function worldbuilder_all {
+  want_envs WORLDBUILDER_FILE "^.+$"
+  local base=$PWD
+  local section=""
+  typeset -A info
+
+  local start=$(date +%s)
+  date
+  mkdir -p ${base}/_images
+
+  while read -r line; do
+    if [[ "$line" =~ "^\[([^]]*)\]"  ]]; then 
+      # echo ">SECTION ${match[1]}" >&2
+
+      # If we just left a section, then it is time to do work.
+      if [[ -n "$section" ]]; then
+        worldbuilder_one "${info[dir]}" "${info[image]}" "${info[commit]}"
+      fi
+
+      # ok, all done, get ready for next
+      cd $base
+      section=${match[1]}
+      info=()
+
+    elif [[ "$line" =~ "^([a-zA-Z0-9_]+)=(.*)" ]]; then
+      # echo ">VAR ${match[1]} = ${match[2]}" >&2
+      info[${match[1]}]=${match[2]}
+    fi
+  done < "$WORLDBUILDER_FILE"
+
+  # Check if we did the final one, and if not do it.
+  if [[ -n "$section" ]]; then
+    worldbuilder_one "${info[dir]}" "${info[image]}" "${info[commit]}"
+  fi
+  cd $base
+
+  date
+  local stop=$(date +%s)
+  echo "Took: $((stop - start))"
+}
+
+function worldbuilder_inject {
+  want_env WORLDBUILDER_VM "^[A-Za-z]+$"
+  local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  want_envs image "^.+$"
+
+  set -e
+  multipass transfer _images/${${image/%:*}:t}.tar ${WORLDBUILDER_VM}:/home/ubuntu/${${image/%:*}:t}.tar
+  multipass exec ${WORLDBUILDER_VM} -- docker load -i /home/ubuntu/${${image/%:*}:t}.tar
+  multipass exec ${WORLDBUILDER_VM} -- rm /home/ubuntu/${${image/%:*}:t}.tar
+
+}
 
 ##############################################################################
 # This needs to be last.

@@ -1401,12 +1401,15 @@ function murdoc_env {
 
 # Get envs for service, reshape into envs for mongo, load them and call mongo.
 function murdoc_mongo {
-  local prefix=LOG_
+  local prefix=MONGO_
+  if [[ -n "${ucr_opts[log]}" ]]; then
+    prefix=LOG_MONGODB_
+  fi
   if [[ -n "${ucr_opts[prefix]}" ]]; then
     prefix=${ucr_opts[prefix]}
   fi
 
-  ens=($(murdoc_env $1 | grep ^${prefix}MONGODB_ |sed -e "s/^${prefix}//" ))
+  ens=($(murdoc_env $1 | grep ^${prefix} |sed -e "s/^${prefix}//" ))
 
   typeset -A mongo_keys
   for r in $ens; do
@@ -1416,7 +1419,7 @@ function murdoc_mongo {
   done
 
   #only URL for now…
-  mongo "${mongo_keys[MONGODB_URL]}"
+  mongo "${mongo_keys[URL]}"
 }
 
 # Get envs for service, reshape into envs for psql, load them and call psql.

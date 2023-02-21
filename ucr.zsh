@@ -1476,14 +1476,18 @@ function murdoc_redis {
 
 ############################################################################################################
 
-function worldbuilder_namer {
+function worldbuilder_sections {
   want_envs WORLDBUILDER_FILE "^.+$"
 
   while read -r line; do
     if [[ "$line" =~ "^\[([^]]*)\]"  ]]; then 
       echo ${match[1]}
     fi
-  done < "$WORLDBUILDER_FILE" | fzf -1 --no-multi --query "${1:-m}"
+  done < "$WORLDBUILDER_FILE"
+}
+
+function worldbuilder_namer {
+  worldbuilder_sections | fzf -1 --no-multi --query "${1:-m}"
 }
 
 function worldbuilder_build {
@@ -1580,7 +1584,7 @@ function worldbuilder_all {
 }
 
 function worldbuilder_inject {
-  want_env WORLDBUILDER_VM "^[A-Za-z]+$"
+  want_envs WORLDBUILDER_VM "^[A-Za-z]+$"
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   want_envs image "^.+$"
@@ -1590,6 +1594,12 @@ function worldbuilder_inject {
   multipass exec ${WORLDBUILDER_VM} -- docker load -i /home/ubuntu/${${image/%:*}:t}.tar
   multipass exec ${WORLDBUILDER_VM} -- rm /home/ubuntu/${${image/%:*}:t}.tar
 
+}
+
+function worldbuilder_all_inject {
+  for sec in $(worldbuilder_sections); do
+    worldbuilder_inject $sec
+  done
 }
 
 ##############################################################################

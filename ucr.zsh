@@ -934,7 +934,7 @@ function ucr_content_delete {
     -d "$req"
 }
 
-function ucr_content_download {
+function ucr_content_downloadold {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid content | jq -r .id)
@@ -952,6 +952,18 @@ function ucr_content_download {
 
   # ??? Should we extract the URL info and then run a curl on that right away?  Or would I rather not have that be automatic?
   # Or maybe options to select?
+}
+
+function ucr_content_download {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local cid=${1:?Need content id to download}
+
+  local fn=$(jq -n --arg cid "$cid" '$cid | @uri' -r)
+
+  v_curl -s ${(e)ucr_base_url}/service/${UCR_SID}/content/item/${fn}/download \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
 }
 
 function ucr_ws_info {

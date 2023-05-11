@@ -966,6 +966,33 @@ function ucr_content_download {
     -H "Authorization: token $UCR_TOKEN"
 }
 
+function ucr_content_upload {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local cid=${1:?Need content id to upload}
+  local opt_req=$(options_to_json \
+    expires_in "^\d+$" \
+    type "^.+$" \
+  )
+  [[ -z "$opt_req" ]] && exit 4
+
+  local fn=$(jq -n -r --arg id "$cid" '$id|@uri')
+
+  # A GET req with url encoded file name and query options for the rest.
+
+  local psu=$(v_curl -s ${(e)ucr_base_url}/service/${UCR_SID}/content/item/${fn}/upload \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+    )
+
+  # Convert to new curl params
+  local params=($(jq '(.inputs|to_entries|[.[]|"-F", "\"\(.key)=\(.value)\""]) + (["-F", "\"\(.field)=@\(.id)\"", .url]) |.[]' -r <<< $psu))
+
+# FIXME: missing something with quotes/expansion or somesuch…
+# if given --curl, and you copy/paste that, it works.
+  v_curl ${=params}
+}
+
 function ucr_ws_info {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
@@ -1502,6 +1529,59 @@ function worldbuilder_namer {
   worldbuilder_sections | fzf -1 --no-multi --query "${1:-m}"
 }
 
+function worldbuilder_example_branch {
+  # write out an example ini
+  cat <<EOE
+[name-of-thing]
+commit=branch_to_checkout
+dir=relative/directory/path/to/thing
+image=container/name:thing
+
+EOE
+}
+
+function worldbuilder_pull_next_release {
+  # Needs a tag/release; pulls the txt assets from github; lifts the commit hashes for each repo
+  # and writes out an ini file based on the currently loaded one.
+  want_envs WORLDBUILDER_FILE "^.+$"
+  local tmpDir=$(mktemp -d)
+  # echo "Pulling to $tmpDir" >&2
+  local tag=${1:?Need a tag to pull}
+  local repo=${2:-exosite/murano}
+
+  # get the release assets
+  gh release download -R "$repo" "$tag" -D "$tmpDir" -p '*.txt' --clobber
+
+  # get the commit hashes
+  # Since that's all we're after, we can use an associative array to store them.
+  typeset -A commits
+  local section
+  while read -r line; do
+    if [[ "$line" =~ "^([^:]*):"  ]]; then
+      section=${match[1]}
+    fi
+    if [[ "$line" =~ "^commit=(.+)$"  ]]; then
+      commits[${section}]=${match[1]}
+    fi
+  done < "$tmpDir"/murano-*.txt
+
+  # Now read the ini file and write out a new one with the commits
+  section=""
+  while read -r line; do
+    if [[ "$line" =~ "^\[([^]]*)\]"  ]]; then 
+      section=${match[1]}
+      echo "$line"
+    elif [[ "$line" =~ "^commit=(.*)$" && -n "$commits[(Ie)$section]" ]]; then
+      # if commit line and we have a commit, write it out
+      echo "commit=${commits[${section}]}"
+    else
+      echo "$line"
+    fi
+  done < "$WORLDBUILDER_FILE"
+
+  rm -rf "$tmpDir"
+}
+
 function worldbuilder_build {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
@@ -1518,7 +1598,7 @@ function worldbuilder_one {
   local base=$PWD
 
   (
-    set -x
+    # set -x
     cd ${dir}
 
     ## BUILD

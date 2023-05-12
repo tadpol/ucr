@@ -1596,6 +1596,7 @@ function worldbuilder_one {
   local image=${2:?Need image name}
   local commit=$3
   local base=$PWD
+  local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
 
   (
     # set -x
@@ -1605,6 +1606,7 @@ function worldbuilder_one {
     local remember=""
     if [[ -n "$commit" ]]; then
       remember=$(git symbolic-ref --quiet HEAD 2>/dev/null)
+      # TODO: if dirty, stash
       git checkout "${commit}"
     fi
 
@@ -1628,7 +1630,7 @@ function worldbuilder_one {
     rm Dockerfile.annotated
 
     ## SAVE
-    docker save -o ${base}/_images/${${image/%:*}:t}.tar "${image}"
+    docker save -o ${base}/${imagesDir}/${${image/%:*}:t}.tar "${image}"
 
     [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
   )
@@ -1638,11 +1640,12 @@ function worldbuilder_all {
   want_envs WORLDBUILDER_FILE "^.+$"
   local base=$PWD
   local section=""
+  local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
   typeset -A info
 
   local start=$(date +%s)
   date
-  mkdir -p ${base}/_images
+  mkdir -p ${base}/${imagesDir}
 
   while read -r line; do
     if [[ "$line" =~ "^\[([^]]*)\]"  ]]; then 
@@ -1678,11 +1681,12 @@ function worldbuilder_all {
 function worldbuilder_inject {
   want_envs WORLDBUILDER_VM "^[A-Za-z]+$"
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   want_envs image "^.+$"
 
   set -e
-  multipass transfer _images/${${image/%:*}:t}.tar ${WORLDBUILDER_VM}:/home/ubuntu/${${image/%:*}:t}.tar
+  multipass transfer ${imagesDir}/${${image/%:*}:t}.tar ${WORLDBUILDER_VM}:/home/ubuntu/${${image/%:*}:t}.tar
   multipass exec ${WORLDBUILDER_VM} -- docker load -i /home/ubuntu/${${image/%:*}:t}.tar
   multipass exec ${WORLDBUILDER_VM} -- rm /home/ubuntu/${${image/%:*}:t}.tar
 

@@ -1438,6 +1438,20 @@ function murdoc_env {
   ${=SSHTO} "sudo docker inspect $key" | jq -r '.[0].Config.Env[]'
 }
 
+function murdoc_labels {
+  want_envs SSHTO ".*"
+  local key=$(murdoc_namer ${1:?Missing Container Name})
+  ${=SSHTO} "sudo docker inspect $key" | jq -r '.[0].Config.Labels | to_entries | .[] | .key + "=" + .value'
+}
+
+function murdoc_commit {
+  want_envs SSHTO ".*"
+  local key=$(murdoc_namer ${1:?Missing Container Name})
+  ${=SSHTO} "sudo docker inspect $key" | \
+    jq -r '.[0].Config.Labels | to_entries | map(select(.key | test("commit"; "i"))) | .[] | [.key, .value]|@csv' | \
+    xsv table
+}
+
 # Get envs for service, reshape into envs for mongo, load them and call mongo.
 function murdoc_mongo {
   local prefix=MONGO_

@@ -1109,7 +1109,7 @@ function jmq_q {
 
 function jmq_pr {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
-  local key=${1:?Missing Issue Key}
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   key=${key##*/}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
@@ -1126,9 +1126,18 @@ function jmq_pr {
     -d "$req" | jq -r '.issues[] | .fields.summary + " (" + .key + ")"' 2>/dev/null
 }
 
+function jmq_branch {
+  # Get the Key from the branch name
+  local ref=${$(git symbolic-ref --short HEAD 2>/dev/null || echo ""):t}
+  # Does this look like a Jira issue key? If so, use it. Otherwise return empty.
+  if [[ $ref =~ "^[a-zA-Z]+-[0-9]+$" ]]; then
+    echo $ref
+  fi
+}
+
 function jmq_next {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
-  local key=${1:?Missing Issue Key}
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
@@ -1160,7 +1169,7 @@ function jmq_next {
 # jmq move FOO-0000 In Progress
 function jmq_move {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
-  local key=${1:?Missing Issue Key}
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
@@ -1242,7 +1251,7 @@ function jmq_backlog {
 
 function jmq_info {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
-  local key=${1:?Missing Issue Key}
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
@@ -1319,7 +1328,7 @@ function jmq_status {
 
 function jmq_open {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
-  local key=${1:?Missing Issue Key}
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
@@ -1330,7 +1339,7 @@ function jmq_open {
 
 function jmq_mdl {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
-  local key=${1:?Missing Issue Key}
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
@@ -1343,7 +1352,7 @@ function jmq_mdl {
 # list files/attachments on a ticket
 function jmq_files {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
-  local key=${1:?Missing Issue Key}
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
@@ -1368,7 +1377,7 @@ function jmq_files {
 
 function jmq_attach {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
-  local key=${1:?Missing Issue Key}
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]];then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
@@ -1639,7 +1648,14 @@ function worldbuilder_one {
     )
     echo "ENV ${extra_envs}" >> Dockerfile.annotated
 
-    docker build -f Dockerfile.annotated -t "${image}" .
+    docker build -f Dockerfile.annotated -t "${image}" \
+      --label io.openshift.build.commit.author="developer.$(date +%s)" \
+      --label io.openshift.build.commit.date="$(date +%Y-%m-%dT%H:%M:%S%z)" \
+      --label io.openshift.build.commit.id="$(git rev-parse HEAD)" \
+      --label io.openshift.build.commit.ref="$(git symbolic-ref --quiet HEAD 2>/dev/null)" \
+      --label io.openshift.build.commit.message="$(git log -1 --format=format:'%s')" \
+      .
+    
     test -e murano-service-ssh-key && rm murano-service-ssh-key
     rm Dockerfile.annotated
 

@@ -1638,26 +1638,11 @@ function worldbuilder_one {
       cp ~/.ssh/murano_builder murano-service-ssh-key
     fi
 
-    cp Dockerfile Dockerfile.annotated
-    local extra_envs=(
-    OPENSHIFT_BUILD_NAME="developer.$(date +%s)"
-    OPENSHIFT_BUILD_NAMESPACE="$(hostname)"
-    OPENSHIFT_BUILD_SOURCE="$(git remote get-url origin)"
-    OPENSHIFT_BUILD_REFERENCE="$(git symbolic-ref --quiet HEAD 2>/dev/null)"
-    OPENSHIFT_BUILD_COMMIT="$(git rev-parse HEAD)"
-    )
-    echo "ENV ${extra_envs}" >> Dockerfile.annotated
-
-    docker build -f Dockerfile.annotated -t "${image}" \
-      --label io.openshift.build.commit.author="developer.$(date +%s)" \
-      --label io.openshift.build.commit.date="$(date +%Y-%m-%dT%H:%M:%S%z)" \
-      --label io.openshift.build.commit.id="$(git rev-parse HEAD)" \
-      --label io.openshift.build.commit.ref="$(git symbolic-ref --quiet HEAD 2>/dev/null)" \
-      --label io.openshift.build.commit.message="$(git log -1 --format=format:'%s')" \
+    docker build -f Dockerfile -t "${image}" \
+      --label com.exosite.build.git_commit="$(git rev-parse HEAD)" \
       .
     
     test -e murano-service-ssh-key && rm murano-service-ssh-key
-    rm Dockerfile.annotated
 
     ## SAVE
     docker save -o ${base}/${imagesDir}/${${image/%:*}:t}.tar "${image}"

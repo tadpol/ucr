@@ -1694,18 +1694,19 @@ function worldbuilder_all {
 }
 
 function worldbuilder_inject {
-  want_envs WORLDBUILDER_VM "^[A-Za-z]+$"
+  want_envs WORLDBUILDER_HOST "^[A-Za-z]+$"
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   want_envs image "^.+$"
 
   set -e
-  multipass transfer ${imagesDir}/${${image/%:*}:t}.tar ${WORLDBUILDER_VM}:/home/ubuntu/${${image/%:*}:t}.tar
-  multipass exec ${WORLDBUILDER_VM} -- docker load -i /home/ubuntu/${${image/%:*}:t}.tar
-  multipass exec ${WORLDBUILDER_VM} -- rm /home/ubuntu/${${image/%:*}:t}.tar
-
+  ssh ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
+  scp ${imagesDir}/${${image/%:*}:t}.tar ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.tar
+  ssh ${WORLDBUILDER_HOST} -- docker load -i /tmp/images/${${image/%:*}:t}.tar
+  ssh ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.tar
 }
+
 
 function worldbuilder_all_inject {
   for sec in $(worldbuilder_sections); do

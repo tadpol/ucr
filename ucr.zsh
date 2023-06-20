@@ -1538,6 +1538,7 @@ function murdoc_redis {
 
 ############################################################################################################
 
+# Get all of the sections from the worldbuilder file
 function worldbuilder_sections {
   want_envs WORLDBUILDER_FILE "^.+$"
 
@@ -1548,6 +1549,7 @@ function worldbuilder_sections {
   done < "$WORLDBUILDER_FILE"
 }
 
+# Fuzzy match a section from the worldbuilder file
 function worldbuilder_namer {
   worldbuilder_sections | fzf -1 --no-multi --query "${1:-m}"
 }
@@ -1563,6 +1565,8 @@ image=container/name:thing
 EOE
 }
 
+# Creates a new worldbuilder file based on the current one, updating the commit hash for each section.
+# The new commits are pulled from a release tag on github.
 function worldbuilder_pull_next_release {
   # Needs a tag/release; pulls the txt assets from github; lifts the commit hashes for each repo
   # and writes out an ini file based on the currently loaded one.
@@ -1605,6 +1609,7 @@ function worldbuilder_pull_next_release {
   rm -rf "$tmpDir"
 }
 
+# Builds one thing from the ini file.
 function worldbuilder_build {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
@@ -1614,6 +1619,8 @@ function worldbuilder_build {
   worldbuilder_one "$dir" "$image" "$commit"
 }
 
+# Builds an image from a section in the worldbuilder file.
+# Doing its best to be idempotent.
 function worldbuilder_one {
   local dir=${1:?Need directory to build}
   local image=${2:?Need image name}
@@ -1627,9 +1634,12 @@ function worldbuilder_one {
 
     ## BUILD
     local remember=""
+    local needs_stash=""
     if [[ -n "$commit" ]]; then
+      needs_stash="$(git status --untracked-files=no --porcelain)"
+      [[ -n "$needs_stash" ]] && git stash
+
       remember=$(git symbolic-ref --quiet HEAD 2>/dev/null)
-      # TODO: if dirty, stash
       git checkout "${commit}"
     fi
 
@@ -1648,9 +1658,11 @@ function worldbuilder_one {
     docker save -o ${base}/${imagesDir}/${${image/%:*}:t}.tar "${image}"
 
     [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
+    [[ -n "$needs_stash" ]] && git stash pop
   )
 }
 
+# Calls worldbuilder_one for each section in the ini file.
 function worldbuilder_all {
   want_envs WORLDBUILDER_FILE "^.+$"
   local base=$PWD

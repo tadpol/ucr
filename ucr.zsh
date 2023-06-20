@@ -1196,12 +1196,6 @@ function jmq_move {
     -d "{\"transition\":{\"id\": ${inp_id} }}"
 }
 
-# Move an issue back to In Progress
-# Used for "undoing" automatic CI transitions.
-function jmq_inp {
-  jmq_move "$1" In Progress
-}
-
 function jmq_as_status {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local stat=${1:?Missing Issue Status}
@@ -1212,8 +1206,6 @@ function jmq_as_status {
   if [[ -z "${ucr_opts[all]}" ]]; then
     jql=(
       "project in (${JMQ_PROJECTS})"
-      "sprint in openSprints()"
-      "sprint not in futureSprints()"
       $jql
     )
   fi
@@ -1231,22 +1223,6 @@ function jmq_todo {
 
 function jmq_doing {
   jmq_as_status "In Progress"
-}
-
-function jmq_backlog {
-  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
-  local jql=(
-    "assignee = currentUser()"
-    "project in (${JMQ_PROJECTS})"
-    "(sprint is EMPTY OR Sprint not in (openSprints(), futureSprints()))"
-    "status in (\"On Deck\", \"In Progress\", \"Code Coverage\") ORDER BY Rank"
-  )
-  local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary"] }')
-
-  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
-    -H 'Content-Type: application/json' \
-    --netrc \
-    -d "$req" | jq -r '.issues[] | [.key, .fields.summary] | @tsv'
 }
 
 function jmq_info {
@@ -1272,7 +1248,6 @@ function jmq_info {
     votes
     watches
     customfield_10820 # Tester
-    customfield_10025 # Sprint
     )
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
@@ -1285,7 +1260,6 @@ function jmq_info {
    Reporter: \(.fields.reporter.displayName)
    Assignee: \(.fields.assignee.displayName)
      Tester: \(.fields.customfield_10820.displayName?)
-     Sprint: \(.fields.customfield_10025 // [] | .[0] | .name)
        Type: \(.fields.issuetype.name) (\(.fields.priority.name))
      Status: \(.fields.status.name) (Resolution: \(.fields.resolution.name))
     Watches: \(.fields.watches.watchCount)  Votes: \(.fields.votes.votes)
@@ -1294,24 +1268,12 @@ Description: \(.fields.description)"'
 
 function jmq_status {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
-  local statuses=("On Deck" "In Progress" "Code Coverage")
+  local statuses=("On Deck" "In Progress" "Validation")
   local jql=(
     "project in (${JMQ_PROJECTS})"
     "status in (\"${(j:",":)statuses}\")"
     "assignee = currentUser() ORDER BY Rank"
   )
-  if [[ -n "${ucr_opts[future]}" ]]; then
-    jql=(
-      "sprint in futureSprints()"
-      $jql
-    )
-  elif [[ -z "${ucr_opts[all]}" ]]; then # if not all do this…
-    jql=(
-      "sprint in openSprints()"
-      "sprint not in futureSprints()"
-      $jql
-    )
-  fi
   local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary","status"] }')
 
   v_curl -s https://${JMQ_HOST}/rest/api/2/search \

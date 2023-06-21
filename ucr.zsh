@@ -1395,7 +1395,9 @@ EOS
 function murdoc_namer {
   # If exists AND younger than 2 days, then cache_file is not empty. (use the cache file)
   # Otherwise, update cache
-  # TODO: this is broken if the cache file does not exist.
+  if [[ ! -f ~/.murdoc_names_cache ]]; then
+    murdoc_names | tr -d / > ~/.murdoc_names_cache
+  fi
   cache_file=~/.murdoc_names_cache(N,md-2)
   if [[ -z "$cache_file" ]]; then
     murdoc_names | tr -d / > ~/.murdoc_names_cache

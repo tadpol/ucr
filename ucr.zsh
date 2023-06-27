@@ -1283,9 +1283,9 @@ function jmq_status {
   group_by(.fields.status.name) |
   map({"key": .[0].fields.status.name, "value": map([("- "+.key), .fields.summary] | @tsv) | join("\n")}) |
   map(select([.key] | inside($sts))) |
-  map([(.key+":"), .value]) |
+  map([(.key+":"), .value] | join("\n")) |
   flatten | 
-  join("\n")'
+  join("\n\n")'
 }
 
 function jmq_open {

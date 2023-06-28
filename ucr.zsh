@@ -489,7 +489,16 @@ function ucr_template_update {
 function ucr_logs {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
-  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/logs \
+  local opt_req=$(
+    options_to_json \
+    limit "[1-9][0-9]*" \
+    offset "[1-9][0-9]*"
+  )
+  [[ -z "$opt_req" ]] && exit 4
+
+  local q=$(jq -r 'to_entries|map("\(.key)=\(.value)")|join("&")' <<< $opt_req)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/logs\?${q} \
     -H "Authorization: token $UCR_TOKEN"
 }
 

@@ -70,6 +70,11 @@ function task_runner {
       leftovers[${#leftovers}+1]=$arg
     elif [[ "$arg" =~ "^--$" ]]; then
       double_dash=true
+    elif [[ "$arg" =~ "^--sec=(.*)$" ]]; then
+      # Handle --sec as it appears; this allows the keys it sets to be overridden by following args
+      ucr_opts[sec]=${match[1]}
+      local cfg=${ucr_opts[cfg]:-~/.${argv0}rc}
+      load_from_ini "$cfg" "${ucr_opts[sec]}"
     elif [[ "$arg" =~ "^--" ]]; then
       # long option
       local opt=${arg#--}
@@ -117,13 +122,6 @@ function task_runner {
   done
   if (( ${#leftovers} == 0 )); then
     ucr_cmdline=(${(L)argv0}_function_not_found ${remaining[@]})
-  fi
-
-  # Handle Global Options here:
-  if [[ -n "$ucr_opts[sec]" ]]; then
-    # echo "> Using ${ucr_opts[sec]}" >&2
-    local cfg=${ucr_opts[cfg]:-~/.${argv0}rc}
-    load_from_ini "$cfg" "${ucr_opts[sec]}"
   fi
 
   # echo "do: $ucr_cmdline" >&2

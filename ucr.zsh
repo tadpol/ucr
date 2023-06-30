@@ -353,6 +353,20 @@ function ${(L)argv0}_state {
 # Repeating this in every command gets messy; so we'll do it once here.
 ucr_base_url='${UCR_SCHEME:-https}://${UCR_HOST}/${UCR_URL_PREFIX:-api:1}'
 
+# Everything here is designed to go thru BIZAPI.  A lot of the stuff here is
+# historical from blind discovery.  There are more 'correct' ways to talk to services within a solution.
+# It would be really nice to be able to also talk directly to dispatcher/api.
+# I _think_ that is possible, but can we use the same URLs with just a different prefix to do that?
+#
+# http://127.0.0.1:4020/api/v1/
+# UCR_SCHEME=http UCR_HOST=127.0.0.1:4020 UCR_URL_PREFIX=api/v1 UCR_TOKEN=' '
+#
+#  !!AH-HA! BIZAPI is mostly just a proxy to peg-api.  So we can just change the base url to talk to peg-api directly.
+# 
+# The newer "better" way that doesn't require getting the UUID of the service doesn't work when going direct to peg-api.
+# So there is just a few commands that are using the new way, and those are going to need to be reworked.
+
+
 function ucr_token {
   get_token
   echo $UCR_TOKEN
@@ -375,6 +389,7 @@ function ucr_env_get {
 }
 
 function ucr_env_set {
+  # FIXME: This should add a new env var, not replace all of them.
   # <key> <value> [<key <value> …]
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
@@ -440,6 +455,7 @@ function ucr_service_schema {
     -H "Authorization: token $UCR_TOKEN"
 }
 
+# Business are a bizapi concept; they are not used in peg-api.
 function ucr_business_solutions {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_BID "^[a-zA-Z0-9]+$"
   get_token
@@ -487,6 +503,7 @@ function ucr_template_update {
 function ucr_logs {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
+  # TODO: add support for the query option
   local opt_req=$(
     options_to_json \
     limit "[1-9][0-9]*" \
@@ -575,28 +592,6 @@ function ucr_tsdb_list_metrics {
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" | jq .metrics
   # someday: Look for .next, and handle repeated calls if need be
-}
-
-function ucr_tsdb_imports {
-  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
-  get_token
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
-
-  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/importJobList \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: token $UCR_TOKEN"
-}
-
-function ucr_tsdb_import_info {
-  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
-  get_token
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
-  local job_id=${1:?Need job id argument}
-
-  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/importJobInfo \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: token $UCR_TOKEN" \
-    -d "{\"job_id\":\"${job_id}\"}"
 }
 
 function ucr_tsdb_exports {
@@ -941,7 +936,7 @@ function ucr_content_delete {
     -d "$req"
 }
 
-function ucr_content_downloadold {
+function ucr_content_download {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid content | jq -r .id)
@@ -950,7 +945,7 @@ function ucr_content_downloadold {
     expires_in "^\d+$" \
   )
   [[ -z "$opt_req" ]] && exit 4
-  local req=$(jq -c --arg cid "$cid" '. + {"id": $cid }' <<< $opt_req)
+  local req=$(jq -c --arg cid "$cid" '. + {"id": $cid|@uri }' <<< $opt_req)
 
   v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/download \
     -H 'Content-Type: application/json' \
@@ -961,18 +956,7 @@ function ucr_content_downloadold {
   # Or maybe options to select?
 }
 
-function ucr_content_download {
-  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
-  get_token
-  local cid=${1:?Need content id to download}
-
-  local fn=$(jq -n --arg cid "$cid" '$cid | @uri' -r)
-
-  v_curl -s ${(e)ucr_base_url}/service/${UCR_SID}/content/item/${fn}/download \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: token $UCR_TOKEN"
-}
-
+# FIXME: This won't work when calling peg-api directly.
 function ucr_content_upload {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
@@ -1358,7 +1342,11 @@ function jmq_attach {
   fi
 
   for f in "$@"; do
-    # TODO: if f is a directory, zip it first
+    if [[ -d "$f" ]]; then
+      local dst=$(mktemp -t ${f##*/}.XXXXXX.zip)
+      zip -r -q ${dst} ${f}
+      f=${dst}
+    fi
     v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/attachments \
     	-H 'X-Atlassian-Token: nocheck' \
       --netrc \

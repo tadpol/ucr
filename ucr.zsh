@@ -1354,6 +1354,48 @@ function jmq_attach {
   done
 
 }
+
+function jmq_links {
+  # links <tickets>
+  # lists the links and types for one or more tickets
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local keys=($@)
+  if [[ $# = 0 ]]; then
+    keys=($(jmq_branch))
+  fi
+  # in place, replace any numbers with the project prefix
+  for (( i=1; i <= ${#keys}; i++ )); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+      keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
+    fi
+  done
+
+  local jql="key in (${(j:,:)keys})"
+  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks"] }') 
+  local map=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req" | \
+    jq -r '[ .issues[] | .key as $issueKey |
+      .fields.issuelinks[] | 
+      if has("inwardIssue") then
+        [.type.name, .inwardIssue.key, $issueKey]
+      else
+        [.type.name, $issueKey, .outwardIssue.key]
+      end
+      ] | unique')
+    
+  if [[ -n "${ucr_opts[dot]}" ]]; then
+    # as a graph thru dot
+    echo "digraph {"
+    jq -r '.[] | "\"" + .[1] + "\" -> \"" + .[2] + "\" [name=" + .[0] + "]"' <<< $map 
+    echo "}"
+  else
+    # as a table thru xsv
+    jq -r '.[] | @csv' <<< $map | xsv table
+  fi
+}
+
 function jmq_merge {
   # merge <ticket> [<branch>]
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}

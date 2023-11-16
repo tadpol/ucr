@@ -1354,6 +1354,32 @@ function jmq_attach {
   done
 
 }
+function jmq_merge {
+  # merge <ticket> [<branch>]
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  local into=${2:-stable}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+
+  local branch=$(git branch --format '%(refname:short)' --list "*${key}")
+  local prn=$(gh pr list --limit 1 --head $branch --json number --jq '.[].number')
+
+  local remember=""
+  local needs_stash=""
+
+  needs_stash="$(git status --untracked-files=no --porcelain)"
+  [[ -n "$needs_stash" ]] && git stash
+  remember=$(git symbolic-ref --quiet HEAD 2>/dev/null)
+
+  git checkout $into
+
+  git merge --no-ff -m "$(jmq_pr $key) (#$prn)" $branch
+
+  [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
+  [[ -n "$needs_stash" ]] && git stash pop
+}
 
 ############################################################################################################
 

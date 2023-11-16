@@ -1474,6 +1474,13 @@ function murdoc_env {
   ${=SSHTO} "sudo docker inspect $key" | jq -r '.[0].Config.Env[]'
 }
 
+function murdoc_image_id {
+  want_envs SSHTO ".*"
+  local key=$(murdoc_namer ${1:?Missing Container Name})
+  local name=$(${=SSHTO} "sudo docker inspect $key" | jq -r '.[0].Config.Image')
+  ${=SSHTO} "sudo docker inspect $name" | jq -r '.[0].RepoDigests[]'
+}
+
 function murdoc_labels {
   want_envs SSHTO ".*"
   local key=$(murdoc_namer ${1:?Missing Container Name})
@@ -1641,9 +1648,12 @@ function worldbuilder_build {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  if [[ ! -v "type" ]]; then
+    type=docker
+  fi
 
-  want_envs dir "^.+$" image "^.+$" commit "^.*$"
-  worldbuilder_one "$dir" "$image" "$commit"
+  want_envs dir "^.+$" image "^.+$" type "^.+$" commit "^.*$"
+  worldbuilder_one "$dir" "$image" "$type" "$commit"
 }
 
 # Builds an image from a section in the worldbuilder file.
@@ -1651,7 +1661,8 @@ function worldbuilder_build {
 function worldbuilder_one {
   local dir=${1:?Need directory to build}
   local image=${2:?Need image name}
-  local commit=$3
+  local type=${3:?Need type of build}
+  local commit=$4
   local base=$PWD
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
 
@@ -1670,19 +1681,29 @@ function worldbuilder_one {
       git checkout "${commit}"
     fi
 
-    # Someday, rewrite _all_ the dockerfiles to use --ssh
-    if grep -s murano-service-ssh-key Dockerfile >/dev/null; then
-      cp ~/.ssh/murano_builder murano-service-ssh-key
+		if [[ "$type" == "docker" ]]; then
+      # Someday, rewrite _all_ the dockerfiles to use --ssh
+      if grep -s murano-service-ssh-key Dockerfile >/dev/null; then
+        cp ~/.ssh/murano_builder murano-service-ssh-key
+      fi
+
+      docker build -f Dockerfile -t "${image}" \
+        --label com.exosite.build.git_commit="$(git rev-parse HEAD)" \
+        .
+      
+      test -e murano-service-ssh-key && rm murano-service-ssh-key
+
+      # save image
+      docker save -o ${base}/${imagesDir}/${${image/%:*}:t}.tar "${image}"
+
+    elif [[ "$type" == "zip" ]]; then
+      # zip up the directory or update an existing zip file
+      local imgFile=${base}/${imagesDir}/${${image/%:*}:t}.zip
+      zip -r -q -FS ${imgFile} . -x "*.git*"
+    else
+      echo "Unknown type: $type" >&2
+      exit 1
     fi
-
-    docker build -f Dockerfile -t "${image}" \
-      --label com.exosite.build.git_commit="$(git rev-parse HEAD)" \
-      .
-    
-    test -e murano-service-ssh-key && rm murano-service-ssh-key
-
-    ## SAVE
-    docker save -o ${base}/${imagesDir}/${${image/%:*}:t}.tar "${image}"
 
     [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
     [[ -n "$needs_stash" ]] && git stash pop
@@ -1707,13 +1728,14 @@ function worldbuilder_all {
 
       # If we just left a section, then it is time to do work.
       if [[ -n "$section" ]]; then
-        worldbuilder_one "${info[dir]}" "${info[image]}" "${info[commit]}"
+        worldbuilder_one "${info[dir]}" "${info[image]}" "${info[type]}" "${info[commit]}"
       fi
 
       # ok, all done, get ready for next
       cd $base
       section=${match[1]}
       info=()
+      info[type]=docker
 
     elif [[ "$line" =~ "^([a-zA-Z0-9_]+)=(.*)" ]]; then
       # echo ">VAR ${match[1]} = ${match[2]}" >&2
@@ -1723,7 +1745,7 @@ function worldbuilder_all {
 
   # Check if we did the final one, and if not do it.
   if [[ -n "$section" ]]; then
-    worldbuilder_one "${info[dir]}" "${info[image]}" "${info[commit]}"
+    worldbuilder_one "${info[dir]}" "${info[image]}" "${info[type]}" "${info[commit]}"
   fi
   cd $base
 
@@ -1737,13 +1759,27 @@ function worldbuilder_inject {
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
-  want_envs image "^.+$"
+  if [[ ! -v "type" ]]; then
+    type=docker
+  fi
+  want_envs image "^.+$" type "^.+$"
 
-  set -e
-  ssh ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
-  scp ${imagesDir}/${${image/%:*}:t}.tar ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.tar
-  ssh ${WORLDBUILDER_HOST} -- docker load -i /tmp/images/${${image/%:*}:t}.tar
-  ssh ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.tar
+  if [[ "$type" == "docker" ]]; then
+    set -e
+    ssh ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
+    scp ${imagesDir}/${${image/%:*}:t}.tar ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.tar
+    ssh ${WORLDBUILDER_HOST} -- docker load -i /tmp/images/${${image/%:*}:t}.tar
+    ssh ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.tar
+  elif [[ "$type" == "zip" ]]; then
+    set -e
+    ssh ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
+    scp ${imagesDir}/${${image/%:*}:t}.zip ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.zip
+    ssh ${WORLDBUILDER_HOST} -- unzip -q -o /tmp/images/${${image/%:*}:t}.zip -d ${dest:-/tmp/images/barf}
+    ssh ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.zip
+  else
+    echo "Unknown type: $type" >&2
+    exit 1
+  fi
 }
 
 

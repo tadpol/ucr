@@ -945,6 +945,7 @@ function ucr_content_delete {
 }
 
 function ucr_content_download {
+  # doesn't actually download, just returns a URL to download from.
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
   local service_uuid=$(ucr_service_uuid content | jq -r .id)
@@ -959,15 +960,13 @@ function ucr_content_download {
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
     -d "$req"
-
-  # ??? Should we extract the URL info and then run a curl on that right away?  Or would I rather not have that be automatic?
-  # Or maybe options to select?
 }
 
-# FIXME: This won't work when calling peg-api directly.
 function ucr_content_upload {
+  # Doesn't actually upload, just returns a cURL to upload to.
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
+  local service_uuid=$(ucr_service_uuid content | jq -r .id)
   local cid=${1:?Need content id to upload}
   local opt_req=$(options_to_json \
     expires_in "^\d+$" \
@@ -975,21 +974,17 @@ function ucr_content_upload {
   )
   [[ -z "$opt_req" ]] && exit 4
 
-  local fn=$(jq -n -r --arg id "$cid" '$id|@uri')
-
   # A GET req with url encoded file name and query options for the rest.
-
-  local psu=$(v_curl -s ${(e)ucr_base_url}/service/${UCR_SID}/content/item/${fn}/upload \
+  local req=$(jq -n -c --arg cid "$cid" '{"id": $cid|@uri }')
+  local psu=$(v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/upload \
     -H 'Content-Type: application/json' \
-    -H "Authorization: token $UCR_TOKEN"
-    )
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+  )
 
   # Convert to new curl params
   local params=($(jq '(.inputs|to_entries|[.[]|"-F", "\"\(.key)=\(.value)\""]) + (["-F", "\"\(.field)=@\(.id)\"", .url]) |.[]' -r <<< $psu))
-
-# FIXME: missing something with quotes/expansion or somesuch…
-# if given --curl, and you copy/paste that, it works.
-  v_curl ${=params}
+  echo curl -X POST "${params[@]}"
 }
 
 function ucr_ws_info {

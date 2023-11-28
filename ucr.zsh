@@ -1603,6 +1603,7 @@ function worldbuilder_example_branch {
 commit=branch_to_checkout
 dir=relative/directory/path/to/thing
 image=container/name:thing
+type=docker|zip
 
 EOE
 }
@@ -1707,7 +1708,8 @@ function worldbuilder_one {
     elif [[ "$type" == "zip" ]]; then
       # zip up the directory or update an existing zip file
       local imgFile=${base}/${imagesDir}/${${image/%:*}:t}.zip
-      zip -r -q -FS ${imgFile} . -x "*.git*"
+      zip -r -FS ${imgFile} . -x "*.git*" 2>&1 | wc -l
+        # pv -lep -s $(find . -name "*.git*" -prune -o -type fd | wc -l) > /dev/null
     else
       echo "Unknown type: $type" >&2
       exit 1
@@ -1716,50 +1718,6 @@ function worldbuilder_one {
     [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
     [[ -n "$needs_stash" ]] && git stash pop
   )
-}
-
-# Calls worldbuilder_one for each section in the ini file.
-function worldbuilder_all {
-  want_envs WORLDBUILDER_FILE "^.+$"
-  local base=$PWD
-  local section=""
-  local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
-  typeset -A info
-
-  local start=$(date +%s)
-  date
-  mkdir -p ${base}/${imagesDir}
-
-  while read -r line; do
-    if [[ "$line" =~ "^\[([^]]*)\]"  ]]; then 
-      # echo ">SECTION ${match[1]}" >&2
-
-      # If we just left a section, then it is time to do work.
-      if [[ -n "$section" ]]; then
-        worldbuilder_one "${info[dir]}" "${info[image]}" "${info[type]}" "${info[commit]}"
-      fi
-
-      # ok, all done, get ready for next
-      cd $base
-      section=${match[1]}
-      info=()
-      info[type]=docker
-
-    elif [[ "$line" =~ "^([a-zA-Z0-9_]+)=(.*)" ]]; then
-      # echo ">VAR ${match[1]} = ${match[2]}" >&2
-      info[${match[1]}]=${match[2]}
-    fi
-  done < "$WORLDBUILDER_FILE"
-
-  # Check if we did the final one, and if not do it.
-  if [[ -n "$section" ]]; then
-    worldbuilder_one "${info[dir]}" "${info[image]}" "${info[type]}" "${info[commit]}"
-  fi
-  cd $base
-
-  date
-  local stop=$(date +%s)
-  echo "Took: $((stop - start))"
 }
 
 function worldbuilder_inject {
@@ -1790,11 +1748,30 @@ function worldbuilder_inject {
   fi
 }
 
+function worldbuilder_all_build {
+  worldbuilder_foreach worldbuilder_build
+}
 
 function worldbuilder_all_inject {
+  worldbuilder_foreach worldbuilder_inject
+}
+
+function worldbuilder_foreach {
+  local start=$(date +%s)
+  local cmd=${1:?Need a command to run}
+  if [[ -n "${ucr_opts[time]}" ]]; then
+    date +%Y-%m-%dT%H:%M:%S%z
+  fi
+
   for sec in $(worldbuilder_sections); do
-    worldbuilder_inject $sec
+    $cmd $sec
   done
+
+  if [[ -n "${ucr_opts[time]}" ]]; then
+    date +%Y-%m-%dT%H:%M:%S%z
+    local stop=$(date +%s)
+    echo "Took: $((stop - start))"
+  fi
 }
 
 ##############################################################################

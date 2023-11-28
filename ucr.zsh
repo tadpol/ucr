@@ -389,11 +389,19 @@ function ucr_env_get {
 }
 
 function ucr_env_set {
-  # FIXME: This should add a new env var, not replace all of them.
   # <key> <value> [<key <value> …]
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
-  local req=$(jq -n -c '[$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries' --args -- "${@}")
+
+  local current="{}"
+  # if not --reset, then get current values
+  if [[ -z ${ucr_opts[reset]} ]]; then
+    current=$(ucr_env_get)
+  fi
+
+  # merge current values with new values
+  local req=$(jq -c '. + ([$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}" <<< $current)
+
   v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/env \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \

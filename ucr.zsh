@@ -1374,24 +1374,37 @@ function jmq_links {
   done
 
   local jql="key in (${(j:,:)keys})"
-  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks"] }') 
-  local map=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks", "fixVersions"] }') 
+  local res=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
-    -d "$req" | \
-    jq -r '[ .issues[] | .key as $issueKey |
+    -d "$req"
+    )
+  local map=$( jq -r '[ .issues[] | .key as $issueKey |
       .fields.issuelinks[] | 
       if has("inwardIssue") then
         [.type.name, .inwardIssue.key, $issueKey]
       else
         [.type.name, $issueKey, .outwardIssue.key]
       end
-      ] | unique')
+      ] | unique' <<< $res)
     
   if [[ -n "${ucr_opts[dot]}" ]]; then
     # as a graph thru dot
+    # build up subgraphs for releases
+    local subs=$(jq -r '[ .issues[] | .key as $issueKey |
+        .fields.fixVersions[] | 
+        {"key":$issueKey, "value": .name}
+        ] | unique | group_by(.value) | map({"key":.[0].value, "value": map(.key)}) | from_entries' <<< $res)
+
     echo "digraph {"
-    jq -r '.[] | "\"" + .[1] + "\" -> \"" + .[2] + "\" [name=" + .[0] + "]"' <<< $map 
+
+    jq -r 'to_entries | 
+      map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n" + 
+        (.value | map(" \""+.+"\";") | join("\n")) + "\n}"
+        ) | join("\n")' <<< $subs
+
+    jq -r '.[] | "\"" + .[1] + "\" -> \"" + .[2] + "\" [label=" + .[0] + "];"' <<< $map 
     echo "}"
   else
     # as a table thru xsv

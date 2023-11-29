@@ -1358,6 +1358,87 @@ function jmq_attach {
 
 }
 
+function jmq_labels {
+  # lables <tickets…>
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local keys=($@)
+  if [[ $# = 0 ]]; then
+    keys=($(jmq_branch))
+  fi
+  # in place, replace any numbers with the project prefix
+  for (( i=1; i <= ${#keys}; i++ )); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+      keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
+    fi
+  done
+  local jql="key in (${(j:,:)keys})"
+  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "labels"] }') 
+  local res=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req"
+    )
+    if [[ $# = 1 ]]; then
+      # if one key, then just print labels.
+      jq -r '.issues[0].fields.labels[]' <<< $res
+    else
+      # if many, then print yaml like keys and labels
+      jq -r '.issues[] | {(.key): .fields.labels} | to_entries | .[] | .key + ": " + (.value | join(", "))' <<< $res
+    fi
+}
+
+function jmq_label_add {
+  # label add <label> <tickets…>
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local label=${1:-Missing a label}
+  shift
+  local keys=($@)
+  if [[ $# = 0 ]]; then
+    keys=($(jmq_branch))
+  fi
+  # in place, replace any numbers with the project prefix
+  for (( i=1; i <= ${#keys}; i++ )); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+      keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
+    fi
+  done
+  
+  local req=$(jq -n -c --arg label "$label" '{"update":{"labels":[{"add":$label}]}}')
+
+  for key in $keys; do
+    v_curl -s -X PUT https://${JMQ_HOST}/rest/api/2/issue/${key} \
+      -H 'Content-Type: application/json' \
+      --netrc \
+      -d "$req"
+  done
+}
+
+function jmq_label_del {
+  # label add <label> <tickets…>
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local label=${1:-Missing a label}
+  shift
+  local keys=($@)
+  if [[ $# = 0 ]]; then
+    keys=($(jmq_branch))
+  fi
+  # in place, replace any numbers with the project prefix
+  for (( i=1; i <= ${#keys}; i++ )); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+      keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
+    fi
+  done
+  
+  local req=$(jq -n -c --arg label "$label" '{"remove":{"labels":[{"add":$label}]}}')
+
+  for key in $keys; do
+    v_curl -s -X PUT https://${JMQ_HOST}/rest/api/2/issue/${key} \
+      -H 'Content-Type: application/json' \
+      --netrc \
+      -d "$req"
+  done
+}
+
 function jmq_links {
   # links <tickets>
   # lists the links and types for one or more tickets

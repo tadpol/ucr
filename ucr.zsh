@@ -1453,9 +1453,11 @@ function jmq_links {
       keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
     fi
   done
+  # Setup to be future configurable
+  local line_opts_json='{"color":"red"}'
 
   local jql="key in (${(j:,:)keys})"
-  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks", "fixVersions"] }') 
+  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks", "fixVersions", "labels"] }') 
   local res=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
@@ -1469,23 +1471,31 @@ function jmq_links {
         [.type.name, $issueKey, .outwardIssue.key]
       end
       ] | unique' <<< $res)
-    
+
   if [[ -n "${ucr_opts[dot]}" ]]; then
     # as a graph thru dot
-    # build up subgraphs for releases
-    local subs=$(jq -r '[ .issues[] | .key as $issueKey |
+    echo "digraph {"
+    # Subgraphs for releases
+    jq -r '[ .issues[] | .key as $issueKey |
         .fields.fixVersions[] | 
         {"key":$issueKey, "value": .name}
-        ] | unique | group_by(.value) | map({"key":.[0].value, "value": map(.key)}) | from_entries' <<< $res)
-
-    echo "digraph {"
-
-    jq -r 'to_entries | 
+      ] | reduce .[] as {$key,$value} ({}; .[$value] += [$key]) |
+      to_entries | 
       map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n" + 
         (.value | map(" \""+.+"\";") | join("\n")) + "\n}"
-        ) | join("\n")' <<< $subs
+        ) | join("\n")' <<< $res
 
-    jq -r '.[] | "\"" + .[1] + "\" -> \"" + .[2] + "\" [label=" + .[0] + "];"' <<< $map 
+    # Subgraphs for labels (filter for specific labels?)
+    jq -r '[.issues[] | {"key":.key, "value":.fields.labels[]}] | reduce .[] as {$key,$value} ({}; .[$value] += [$key]) |
+      to_entries | map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n" + 
+        (.value | map(" \""+.+"\";") | join("\n")) + "\n}"
+        ) | join("\n")' <<< $res
+  
+    # Links
+    jq -r --argjson lineopts "$line_opts_json" '.[] | 
+      "\"\(.[1])\" -> \"\(.[2])\" [" +
+      (($lineopts) | to_entries | map("\(.key)=\(.value)") | join(", ")) +
+      "]"' <<< $map 
     echo "}"
   else
     # as a table thru xsv

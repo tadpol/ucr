@@ -1429,7 +1429,7 @@ function jmq_label_del {
     fi
   done
   
-  local req=$(jq -n -c --arg label "$label" '{"remove":{"labels":[{"add":$label}]}}')
+  local req=$(jq -n -c --arg label "$label" '{"update":{"labels":[{"remove":$label}]}}')
 
   for key in $keys; do
     v_curl -s -X PUT https://${JMQ_HOST}/rest/api/2/issue/${key} \
@@ -1487,7 +1487,7 @@ function jmq_links {
 
     # Subgraphs for labels (filter for specific labels?)
     jq -r '[.issues[] | {"key":.key, "value":.fields.labels[]}] | reduce .[] as {$key,$value} ({}; .[$value] += [$key]) |
-      to_entries | map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n" + 
+      to_entries | map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n style=dashed;\n" + 
         (.value | map(" \""+.+"\";") | join("\n")) + "\n}"
         ) | join("\n")' <<< $res
   

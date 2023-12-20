@@ -1751,26 +1751,17 @@ function worldbuilder_pull_next_release {
   rm -rf "$tmpDir"
 }
 
-# Builds one thing from the ini file.
+# Builds an image from a section in the worldbuilder file.
+# Doing its best to be idempotent.
 function worldbuilder_build {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
-  if [[ ! -v "type" ]]; then
-    type=docker
-  fi
+  [[ ! -v "type" ]] && typeset -g -x type=docker
+  [[ ! -v "platform" ]] && typeset -g -x platform=linux/arm64
 
   want_envs dir "^.+$" image "^.+$" type "^.+$" commit "^.*$"
-  worldbuilder_one "$dir" "$image" "$type" "$commit"
-}
 
-# Builds an image from a section in the worldbuilder file.
-# Doing its best to be idempotent.
-function worldbuilder_one {
-  local dir=${1:?Need directory to build}
-  local image=${2:?Need image name}
-  local type=${3:?Need type of build}
-  local commit=$4
   local base=$PWD
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
 
@@ -1795,10 +1786,13 @@ function worldbuilder_one {
         cp ~/.ssh/murano_builder murano-service-ssh-key
       fi
 
-      docker build -f Dockerfile -t "${image}" \
-        --label com.exosite.build.git_commit="$(git rev-parse HEAD)" \
-        .
-      
+     docker buildx build \
+      --label com.exosite.build.git_commit="$(git rev-parse HEAD)" \
+      --load \
+      --tag "${image}" \
+      --platform="${platform}" \
+      .
+
       test -e murano-service-ssh-key && rm murano-service-ssh-key
 
       # save image

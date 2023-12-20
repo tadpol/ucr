@@ -1604,25 +1604,29 @@ function murdoc_commit {
 
 # Get envs for service, reshape into envs for mongo, load them and call mongo.
 function murdoc_mongo {
-  local prefix=MONGO_
+  local prefix
   if [[ -n "${ucr_opts[log]}" ]]; then
     prefix=LOG_MONGODB_
   fi
   if [[ -n "${ucr_opts[prefix]}" ]]; then
     prefix=${ucr_opts[prefix]}
   fi
+  local url
+  if [[ -n "${prefix}" ]]; then
+  	# use prefix
+    url=($(murdoc_env $1 | grep ^${prefix}_URL |sed -e "s/^${prefix}_URL//" ))
+  else
+    # If no --prefix and multiple _URL matches, then ask which one to use.
+    local from=$(murdoc_env $1 | grep 'MONGO.*URL'| sed -E 's/^([^=]+)=(.*)$/\1\t\2/')
+    url=$(fzf --select-1 --no-multi --nth=2 --with-nth=1 --height 30% <<< $from | awk '{print $2}' )
+  fi
 
-  ens=($(murdoc_env $1 | grep ^${prefix} |sed -e "s/^${prefix}//" ))
-
-  typeset -A mongo_keys
-  for r in $ens; do
-    if [[ "$r" =~ "([a-zA-Z0-9_]+)=(.*)" ]]; then
-      mongo_keys[${match[1]}]=${match[2]}
-    fi
-  done
-
-  #only URL for now…
-  mongo "${mongo_keys[URL]}"
+  # check for 'mongo' or 'mongosh' and use that.
+  if command -v mongosh >/dev/null 2>&1; then
+    mongosh "${url}"
+  else
+    mongo "${url}"
+  fi
 }
 
 # Get envs for service, reshape into envs for psql, load them and call psql.

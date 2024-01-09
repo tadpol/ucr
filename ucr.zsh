@@ -1532,34 +1532,69 @@ function jmq_merge {
 
 ############################################################################################################
 
-function murdoc_images {
-  want_envs SSHTO ".*"
-  ${=SSHTO} "sudo bash -s" <<-'EOS'
-    docker inspect $(docker inspect $(docker ps -q) --format='{{.Image}}')
-EOS
+function murdoc_ips {
+  # Get the nodes in the swarm
+  # Historically, these have been IPv4 addresses, but everything here should work with IPv6 or hostnames as well.
+  local all=()
+  # Check for a hardcoded list of IPs
+  if [[ -n ${MURDOC_NODES} ]]; then
+    all=(${(s: :)MURDOC_NODES})
+  else
+    # Otherwise go fetch the dynamic list
+    want_envs MURDOC_IPS_URL ".+"
+    all=($(curl -s "${MURDOC_IPS_URL}" | jq -r '.items[0].subsets[0].addresses[] | .ip'))
+  fi
+  # unless want all, pick one randomly
+  if [[ -z "${ucr_opts[all]}" ]]; then
+    print -r $all[(RANDOM%${#all[@]})+1]
+  else
+    print -r $all
+  fi
 }
 
-function murdoc_ps {
-  # --name|-n
-  want_envs SSHTO ".*"
-  local filter='.'
-  if [[ -n "${ucr_opts[name]}" || -n "${ucr_opts[n]}" ]]; then
-    filter='map( {(.Name | tostring): .}) | add'
+function murdoc_inspect_on {
+  # run docker inspect on a node
+  # If localhost, then don't ssh
+  #
+  # Because this gets used by zargs, the *last* parameter is the node, and the priors are the args to docker inspect.
+	local args=($@)
+  [[ ${#args} = 0 ]] && args=(localhost)
+  # get last item in args
+  local node=${args[-1]}
+  # remove last item from args
+  args=(${args[1,-2]})
+  # if no args, use all containers
+  [[ ${#args} = 0 ]] && args=('$(docker ps -q)')
+  local cmd="docker inspect ${args[@]}"
+
+  # replace 'docker' with 'sudo docker' in all occurrences if --sudo
+  if [[ -n "${ucr_opts[sudo]}" || -n "$MURDOC_OPTS_SUDO" ]]; then
+    cmd=${cmd//docker/sudo docker}
   fi
-  ${=SSHTO} 'sudo docker inspect $(sudo docker ps -q)' | jq "${filter}"
+  
+  # if node is localhost, then don't ssh
+  if [[ $node = "localhost" ]]; then
+    eval $cmd
+  else
+    ssh $node $cmd
+  fi
+}
+
+
+function murdoc_inspect {
+  # For starts, always run on one node. (this is how it all worked before)
+  local nodes=($(murdoc_ips))
+  local args=($@)
+  murdoc_inspect_on ${args[@]} ${nodes[1]}
 }
 
 function murdoc_status {
-  want_envs SSHTO ".*"
   filter='sort_by(.Name)|.[]|[.Name, .State.Status, .State.Health.Status]|@csv'
-  ${=SSHTO} 'sudo docker inspect $(sudo docker ps -q)' | jq -r "${filter}" | xsv table
+  murdoc_inspect | jq -r "${filter}" | xsv table 
 }
 
 function murdoc_names {
-  want_envs SSHTO ".*"
-  ${=SSHTO} "sudo bash -s" <<-'EOS' | jq -r 'map(.Name) | sort | .[]'
-    docker inspect $(docker ps -q)
-EOS
+  murdoc_inspect | jq -r 'map(.Name) | sort | .[]'
 }
 
 function murdoc_namer {
@@ -1576,28 +1611,18 @@ function murdoc_namer {
 }
 
 function murdoc_env {
-  want_envs SSHTO ".*"
   local key=$(murdoc_namer ${1:?Missing Container Name})
-  ${=SSHTO} "sudo docker inspect $key" | jq -r '.[0].Config.Env[]'
-}
-
-function murdoc_image_id {
-  want_envs SSHTO ".*"
-  local key=$(murdoc_namer ${1:?Missing Container Name})
-  local name=$(${=SSHTO} "sudo docker inspect $key" | jq -r '.[0].Config.Image')
-  ${=SSHTO} "sudo docker inspect $name" | jq -r '.[0].RepoDigests[]'
+  murdoc_inspect $key | jq -r '.[]|.Config.Env[]'
 }
 
 function murdoc_labels {
-  want_envs SSHTO ".*"
   local key=$(murdoc_namer ${1:?Missing Container Name})
-  ${=SSHTO} "sudo docker inspect $key" | jq -r '.[0].Config.Labels | to_entries | .[] | .key + "=" + .value'
+  murdoc_inspect $key | jq -r '.[0].Config.Labels | to_entries | .[] | .key + "=" + .value'
 }
 
 function murdoc_commit {
-  want_envs SSHTO ".*"
   local key=$(murdoc_namer ${1:?Missing Container Name})
-  ${=SSHTO} "sudo docker inspect $key" | \
+  murdoc_inspect $key | \
     jq -r '.[0].Config.Labels | to_entries | map(select(.key | test("commit"; "i"))) | .[] | [.key, .value]|@csv' | \
     xsv table
 }

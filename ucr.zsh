@@ -1552,6 +1552,24 @@ function murdoc_ips {
   fi
 }
 
+function murdoc_rekey {
+  # refresh/replace the ssh known_hosts entries for the swarm
+  ucr_opts[all]=1
+  local nodes=($(murdoc_ips))
+  autoload -Uz zargs
+
+  function rekey_one() {
+    local node=$1
+    echo "Updating $node… "
+    (
+      ssh-keygen -R $node -f ~/.ssh/known_hosts > /dev/null 2>&1
+      ssh-keyscan -H $node >> ~/.ssh/known_hosts 2>/dev/null
+    ) 
+  }
+
+  zargs -P 5 -l 1 -- ${nodes} -- rekey_one
+}
+
 function murdoc_inspect_on {
   # run docker inspect on a node
   # If localhost, then don't ssh

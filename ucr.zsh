@@ -1208,7 +1208,9 @@ function jmq_as_status {
   v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
-    -d "$req" | jq -r '.issues[] | [.key, .fields.summary] | @tsv'
+    -d "$req" | \
+    jq -r '.issues[] | [.key, .fields.summary] | @tsv' | \
+    mlr --itsv --opprint --implicit-csv-header --headerless-csv-output cat
 }
 
 function jmq_todo {
@@ -1498,8 +1500,9 @@ function jmq_links {
       "]"' <<< $map 
     echo "}"
   else
-    # as a table thru xsv
-    jq -r '.[] | @csv' <<< $map | xsv table
+    # as a table thru miller
+    jq -r '.[] | @csv' <<< $map | \
+      mlr --icsv --opprint --barred --implicit-csv-header label Type,From,To
   fi
 }
 
@@ -1608,7 +1611,8 @@ function murdoc_inspect {
 
 function murdoc_status {
   filter='sort_by(.Name)|.[]|[.Name, .State.Status, .State.Health.Status]|@csv'
-  murdoc_inspect | jq -r "${filter}" | xsv table 
+  murdoc_inspect | jq -r "${filter}" | \
+    mlr --icsv --opprint --implicit-csv-header --barred --right label container,status,health
 }
 
 function murdoc_names {
@@ -1642,7 +1646,7 @@ function murdoc_commit {
   local key=$(murdoc_namer ${1:?Missing Container Name})
   murdoc_inspect $key | \
     jq -r '.[0].Config.Labels | to_entries | map(select(.key | test("commit"; "i"))) | .[] | [.key, .value]|@csv' | \
-    xsv table
+    mlr --icsv --opprint --implicit-csv-header --headerless-csv-output --no-color cat
 }
 
 # Get envs for service, reshape into envs for mongo, load them and call mongo.

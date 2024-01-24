@@ -1748,8 +1748,10 @@ function worldbuilder_namer {
 
 function worldbuilder_example_branch {
   # write out an example ini
+  # Needs better example data
   cat <<EOE
 [name-of-thing]
+repo=git repo url (ssh or https)
 commit=branch_to_checkout
 dir=relative/directory/path/to/thing
 image=container/name:thing
@@ -1802,6 +1804,53 @@ function worldbuilder_pull_next_release {
   rm -rf "$tmpDir"
 }
 
+# worldbuilder_clone <section>
+# if the dir doesn't exist or is empty, then clone the repo
+function worldbuilder_clone {
+  want_envs WORLDBUILDER_FILE "^.+$"
+  local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  want_envs dir "^.+$" repo "^.+$"
+
+  if [[ ! -d "$dir" || -z "$(ls -A "$dir")" ]]; then
+    mkdir -p "$dir"
+    git clone "$repo" "$dir"
+  fi
+}
+
+# worldbuilder_update <section>
+# if the dir exists, then git fetch all
+function worldbuilder_update {
+  want_envs WORLDBUILDER_FILE "^.+$"
+  local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  want_envs dir "^.+$" commit "^.*$"
+
+  (
+    cd ${dir}
+    git fetch --all
+
+    # if commit is in heads, then checkout that branch and do a pull
+    local heads=($(git for-each-ref --format='%(refname:short)' refs/heads/))
+    if [[ " ${heads[@]} " =~ " ${commit} " ]]; then
+      # Remember where things are before switching and pulling
+      local remember=""
+      local needs_stash=""
+      needs_stash="$(git status --untracked-files=no --porcelain)"
+      [[ -n "$needs_stash" ]] && git stash
+
+      remember=$(git symbolic-ref --quiet HEAD 2>/dev/null)
+      git checkout "${commit}"
+
+      git pull
+
+      # …and put things back
+      [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
+      [[ -n "$needs_stash" ]] && git stash pop
+    fi
+  )
+}
+
 # Builds an image from a section in the worldbuilder file.
 # Doing its best to be idempotent.
 function worldbuilder_build {
@@ -1811,7 +1860,7 @@ function worldbuilder_build {
   [[ ! -v "type" ]] && typeset -g -x type=docker
   [[ ! -v "platform" ]] && typeset -g -x platform=linux/arm64
 
-  want_envs dir "^.+$" image "^.+$" type "^.+$" commit "^.*$"
+  want_envs dir "^.+$" image "^.+$" type "^.+$" commit "^.*$" repo "^.+$"
 
   local base=$PWD
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
@@ -1854,6 +1903,14 @@ function worldbuilder_build {
       local imgFile=${base}/${imagesDir}/${${image/%:*}:t}.zip
       zip -r -FS ${imgFile} . -x "*.git*" 2>&1 | wc -l
         # pv -lep -s $(find . -name "*.git*" -prune -o -type fd | wc -l) > /dev/null
+
+    elif [[ "$type" == "gh-release" ]]; then
+      # Fetch the release assets from github
+      if [[ -n "$commit" ]]; then
+        # make sure it is a tag, because only tags can be releases
+        commit=$(git describe --abbrev=0 --tags $commit)
+      fi
+      gh release download -R "$repo" "$commit" -D "${base}/${imagesDir}" -p "${image}.zip" --clobber 
     else
       echo "Unknown type: $type" >&2
       exit 1
@@ -1880,7 +1937,7 @@ function worldbuilder_inject {
     scp ${imagesDir}/${${image/%:*}:t}.tar ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.tar
     ssh ${WORLDBUILDER_HOST} -- docker load -i /tmp/images/${${image/%:*}:t}.tar
     ssh ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.tar
-  elif [[ "$type" == "zip" ]]; then
+  elif [[ "$type" == "zip" || "$type" == "gh-release" ]]; then
     set -e
     ssh ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
     scp ${imagesDir}/${${image/%:*}:t}.zip ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.zip
@@ -1890,14 +1947,6 @@ function worldbuilder_inject {
     echo "Unknown type: $type" >&2
     exit 1
   fi
-}
-
-function worldbuilder_all_build {
-  worldbuilder_foreach worldbuilder_build
-}
-
-function worldbuilder_all_inject {
-  worldbuilder_foreach worldbuilder_inject
 }
 
 function worldbuilder_foreach {
@@ -1916,6 +1965,16 @@ function worldbuilder_foreach {
     local stop=$(date +%s)
     echo "Took: $((stop - start))"
   fi
+}
+
+function worldbuilder_all {
+  local action=${1:-build}
+  local allowed=(build clone inject update)
+  if [[ ! " ${allowed[@]} " =~ " ${action} " ]]; then
+    echo "Unknown action: $action" >&2
+    exit 1
+  fi
+  worldbuilder_foreach worldbuilder_${action}
 }
 
 ##############################################################################

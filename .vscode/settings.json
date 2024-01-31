@@ -4,6 +4,7 @@
     "buildx",
     "cmdline",
     "dtog",
+    "duckdb",
     "mdelete",
     "mget",
     "murdoc",
@@ -14,6 +15,7 @@
     "psql",
     "rediscli",
     "sshto",
-    "tojson"
+    "tojson",
+    "zargs"
   ]
 }

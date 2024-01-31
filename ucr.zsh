@@ -1898,19 +1898,29 @@ function worldbuilder_build {
       # save image
       docker save -o ${base}/${imagesDir}/${${image/%:*}:t}.tar "${image}"
 
-    elif [[ "$type" == "zip" ]]; then
-      # zip up the directory or update an existing zip file
-      local imgFile=${base}/${imagesDir}/${${image/%:*}:t}.zip
-      zip -r -FS ${imgFile} . -x "*.git*" 2>&1 | wc -l
+    elif [[ "$type" == "build" ]]; then
+      # default to zipping the entire directory
+    	function zip_build() {
+        zip -r -FS "$1" . -x "*.git*" 2>&1 | wc -l
         # pv -lep -s $(find . -name "*.git*" -prune -o -type fd | wc -l) > /dev/null
+      }
+      [[ ! -v "build_cmd" ]] && typeset -g -x build_cmd=zip_build
 
-    elif [[ "$type" == "gh-release" ]]; then
-      # Fetch the release assets from github
-      if [[ -n "$commit" ]]; then
-        # make sure it is a tag, because only tags can be releases
-        commit=$(git describe --abbrev=0 --tags $commit)
-      fi
-      gh release download -R "$repo" "$commit" -D "${base}/${imagesDir}" -p "${image}.zip" --clobber 
+      # Adding a builtin build command for fetching gh-release asset.
+      function gh_release() {
+        # $1 is the asset we want
+        # $2 is where to save it
+        # Fetch the release asset from github
+        if [[ -n "$commit" ]]; then
+          # make sure it is a tag, because only tags can be releases
+          commit=$(git describe --abbrev=0 --tags $commit)
+        fi
+        # when commit is empty, it will grab the latest release
+        gh release download -R "$repo" "$commit" -O "$2" -p "$1" --clobber
+      }
+
+      ${=build_cmd} "${base}/${imagesDir}/${${image/%:*}:t}.zip"
+
     else
       echo "Unknown type: $type" >&2
       exit 1
@@ -1937,7 +1947,7 @@ function worldbuilder_inject {
     scp ${imagesDir}/${${image/%:*}:t}.tar ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.tar
     ssh ${WORLDBUILDER_HOST} -- docker load -i /tmp/images/${${image/%:*}:t}.tar
     ssh ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.tar
-  elif [[ "$type" == "zip" || "$type" == "gh-release" ]]; then
+  elif [[ "$type" == "build" ]]; then
     set -e
     ssh ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
     scp ${imagesDir}/${${image/%:*}:t}.zip ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.zip

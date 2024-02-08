@@ -1967,7 +1967,8 @@ function worldbuilder_foreach {
   fi
 
   for sec in $(worldbuilder_sections); do
-    $cmd $sec
+    [[ -n "${ucr_opts[verbose]}" ]] && echo "Running: $cmd '$sec'"
+    $cmd "'$sec"
   done
 
   if [[ -n "${ucr_opts[time]}" ]]; then

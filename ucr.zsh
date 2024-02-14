@@ -380,6 +380,14 @@ function ucr_dump_script {
     -H "Authorization: token $UCR_TOKEN"
 }
 
+function ucr_dump_source_map {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/route/${UCR_SID}/sourcemap \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
 function ucr_env_get {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
@@ -393,18 +401,33 @@ function ucr_env_set {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
 
-  local current="{}"
-  # if not --reset, then get current values
-  if [[ -z ${ucr_opts[reset]} ]]; then
-    current=$(ucr_env_get)
+  local method=PUT
+  if [[ -n "$ucr_opts[overwrite]" ]]; then
+    method=POST
   fi
 
-  # merge current values with new values
-  local req=$(jq -c '. + ([$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}" <<< $current)
+  # build values req
+  local req=$(jq -n -c '. + ([$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
 
   v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/env \
     -H 'Content-Type: application/json' \
     -H "Authorization: token $UCR_TOKEN" \
+    -X $method \
+    -d "$req"
+}
+
+function ucr_env_del {
+  # <key> [<key> …]
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+
+  # req is an object with each key set to null
+  local req=$(jq -n -c '. + ([$ARGS.positional[]|{"key":.,"value":null}]|from_entries)' --args -- "${@}")
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/env \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -X PUT \
     -d "$req"
 }
 

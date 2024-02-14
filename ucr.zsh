@@ -1635,7 +1635,8 @@ function murdoc_inspect {
 function murdoc_status {
   filter='sort_by(.Name)|.[]|[.Name, .State.Status, .State.Health.Status]|@csv'
   murdoc_inspect | jq -r "${filter}" | \
-    mlr --icsv --opprint --implicit-csv-header --barred --right label container,status,health
+    mlr --icsv --opprint --implicit-csv-header --barred --right label container,status,health \
+    then sort -f container
 }
 
 function murdoc_names {

@@ -1932,7 +1932,9 @@ function worldbuilder_build {
 }
 
 function worldbuilder_inject {
-  want_envs WORLDBUILDER_HOST "^[A-Za-z]+$"
+  want_envs WORLDBUILDER_HOST "^[-A-Za-z]+$"
+  local ssh_cfg=''
+  [[ -n ${WORLDBUILDER_SSH_CFG} ]] && ssh_cfg="-F ${WORLDBUILDER_SSH_CFG}"
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
@@ -1943,16 +1945,16 @@ function worldbuilder_inject {
 
   if [[ "$type" == "docker" ]]; then
     set -e
-    ssh ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
-    scp ${imagesDir}/${${image/%:*}:t}.tar ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.tar
-    ssh ${WORLDBUILDER_HOST} -- docker load -i /tmp/images/${${image/%:*}:t}.tar
-    ssh ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.tar
+    ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
+    scp ${=ssh_cfg} ${imagesDir}/${${image/%:*}:t}.tar ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.tar
+    ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- docker load -i /tmp/images/${${image/%:*}:t}.tar
+    ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.tar
   elif [[ "$type" == "build" ]]; then
     set -e
-    ssh ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
-    scp ${imagesDir}/${${image/%:*}:t}.zip ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.zip
-    ssh ${WORLDBUILDER_HOST} -- unzip -q -o /tmp/images/${${image/%:*}:t}.zip -d ${dest:-/tmp/images/barf}
-    ssh ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.zip
+    ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
+    scp ${=ssh_cfg} ${imagesDir}/${${image/%:*}:t}.zip ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.zip
+    ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- sudo unzip -q -o /tmp/images/${${image/%:*}:t}.zip -d ${dest:-/tmp/images/barf}
+    ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.zip
   else
     echo "Unknown type: $type" >&2
     exit 1
@@ -1969,6 +1971,7 @@ function worldbuilder_foreach {
   for sec in $(worldbuilder_sections); do
     [[ -n "${ucr_opts[verbose]}" ]] && echo "Running: $cmd '$sec'"
     $cmd "'$sec"
+    unset image type commit repo dir
   done
 
   if [[ -n "${ucr_opts[time]}" ]]; then

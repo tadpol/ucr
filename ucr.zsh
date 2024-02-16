@@ -534,7 +534,6 @@ function ucr_template_update {
 function ucr_logs {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token
-  # TODO: add support for the query option
   local opt_req=$(
     options_to_json \
     limit "[1-9][0-9]*" \
@@ -1351,9 +1350,9 @@ function jmq_files {
   v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --netrc \
-    -d "$req" | jq -r '.issues[] | .fields.attachment[] | [.filename, .mimeType, .content]|@tsv'
-
-  # XXX: do not like this output. (things are too long.)
+    -d "$req" | \
+    jq -r '.issues[] | .fields.attachment[] | [.filename, .mimeType, .content]|@tsv' | 
+    mlr --itsv --implicit-csv-header --opprint label name,type,link
 }
 
 function jmq_attach {

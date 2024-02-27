@@ -1595,6 +1595,19 @@ function murdoc_rekey {
   zargs -P 5 -l 1 -- ${nodes} -- rekey_one
 }
 
+function murdoc_sshto {
+  # ssh to a node in the swarm
+  local nodes=($(murdoc_ips))
+  local node=${nodes[1]}
+  local cmd="${@}"
+  # if node is localhost, then don't ssh
+  if [[ $node = "localhost" ]]; then
+    eval $cmd
+  else
+    exec ssh $node $cmd
+  fi
+}
+
 function murdoc_inspect_on {
   # run docker inspect on a node
   # If localhost, then don't ssh

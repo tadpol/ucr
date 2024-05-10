@@ -1978,7 +1978,7 @@ function worldbuilder_build {
 }
 
 function worldbuilder_inject {
-  want_envs WORLDBUILDER_HOST "^[-A-Za-z]+$"
+  want_envs WORLDBUILDER_HOST "^[-@._A-Za-z0-9]+$"
   local ssh_cfg=''
   [[ -n ${WORLDBUILDER_SSH_CFG} ]] && ssh_cfg="-F ${WORLDBUILDER_SSH_CFG}"
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
@@ -2016,8 +2016,10 @@ function worldbuilder_foreach {
 
   for sec in $(worldbuilder_sections); do
     [[ -n "${ucr_opts[verbose]}" ]] && echo "Running: $cmd '$sec'"
+    # the `'` in front of the $sec is to enable fzf exact mode.
     $cmd "'$sec"
-    unset image type commit repo dir
+    # TODO: get the list of vars to unset from the section…
+    unset image type commit repo dir platform dest build_cmd
   done
 
   if [[ -n "${ucr_opts[time]}" ]]; then

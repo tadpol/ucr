@@ -478,6 +478,16 @@ function ucr_service_add {
     -d "$req"
 }
 
+function ucr_service_delete {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service=${1:?Need service name}
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${(L)service} \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -X DELETE
+}
+
 function ucr_service_schema {
   want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
   get_token

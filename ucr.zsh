@@ -1583,7 +1583,7 @@ function murdoc_ips {
   if [[ -z "${ucr_opts[all]}" ]]; then
     print -r $all[(RANDOM%${#all[@]})+1]
   else
-    print -r $all
+    printf "%s\n" "${all[@]}"
   fi
 }
 
@@ -1607,8 +1607,9 @@ function murdoc_rekey {
 
 function murdoc_sshto {
   # ssh to a node in the swarm
-  local nodes=($(murdoc_ips))
-  local node=${nodes[1]}
+  # default is to randomly pick one, but --pick will prompt for a selection
+  [[ -n ${ucr_opts[pick]} ]] && ucr_opts[all]=1
+  local node=$(murdoc_ips | fzf -1 --no-multi --prompt="SSH to: " --header="Select a node" --height=30%)
   local cmd="${@}"
   # if node is localhost, then don't ssh
   if [[ $node = "localhost" ]]; then

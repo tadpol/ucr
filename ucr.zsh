@@ -1757,11 +1757,14 @@ function murdoc_redis {
   redis_keys[HOST]=127.0.0.1
   redis_keys[USER]=''
   redis_keys[DB]=0
+  redis_keys[TLS]=''
   for r in $ens; do
     if [[ "$r" =~ "([a-zA-Z0-9_]+)=(.*)" ]]; then
       redis_keys[${match[1]}]=${match[2]}
     fi
   done
+
+  [[ -n "${redis_keys[TLS]}" ]] && redis_keys[TLS]='--tls'
 
   if [[ -n "${redis_keys[PASSWORD]}" ]]; then
     typeset -g -x REDISCLI_AUTH=${redis_keys[PASSWORD]}
@@ -1771,7 +1774,7 @@ function murdoc_redis {
   if [[ -n "${redis_keys[URL]}" ]];then
     redis-cli -u "${redis_keys[URL]}" "$@"
   else
-    redis-cli -h ${redis_keys[HOST]} -p ${redis_keys[PORT]} -n ${redis_keys[DB]} "$@"
+    redis-cli -h ${redis_keys[HOST]} -p ${redis_keys[PORT]} -n ${redis_keys[DB]} ${redis_keys[TLS]} "$@"
   fi
 }
 

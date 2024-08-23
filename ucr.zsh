@@ -1766,16 +1766,25 @@ function murdoc_redis {
 
   [[ -n "${redis_keys[TLS]}" ]] && redis_keys[TLS]='--tls'
 
+  if [[ -n "${redis_keys[URL]}" ]];then
+    RE_MATCH_PCRE=1
+    # redis-cli -u redis://[username:password@]host[:port][/db-number] [options]
+    if [[ "${redis_keys[URL]}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/([0-9]+))?$" ]]; then
+      redis_keys[USER]=${match[3]}
+      redis_keys[PASSWORD]=${match[4]}
+      redis_keys[HOST]=${match[5]}
+      redis_keys[PORT]=${match[6]}
+      redis_keys[DB]=${match[8]:-0}
+      [[ "rediss" = "${match[1]}" ]] && redis_keys[TLS]='--tls' || redis_keys[TLS]=''
+    fi
+  fi
+
   if [[ -n "${redis_keys[PASSWORD]}" ]]; then
     typeset -g -x REDISCLI_AUTH=${redis_keys[PASSWORD]}
   fi
   shift 1
 
-  if [[ -n "${redis_keys[URL]}" ]];then
-    redis-cli -u "${redis_keys[URL]}" "$@"
-  else
-    redis-cli -h ${redis_keys[HOST]} -p ${redis_keys[PORT]} -n ${redis_keys[DB]} ${redis_keys[TLS]} "$@"
-  fi
+  redis-cli -h ${redis_keys[HOST]} -p ${redis_keys[PORT]} -n ${redis_keys[DB]} ${redis_keys[TLS]} "$@"
 }
 
 ############################################################################################################

@@ -1901,6 +1901,19 @@ function worldbuilder_update {
   )
 }
 
+function worldbuilder_where {
+  want_envs WORLDBUILDER_FILE "^.+$"
+  local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  want_envs dir "^.+$"
+  (
+    cd ${dir}
+    echo -n "$whom : "
+    git symbolic-ref --quiet HEAD
+  )
+
+}
+
 # Builds an image from a section in the worldbuilder file.
 # Doing its best to be idempotent.
 function worldbuilder_build {

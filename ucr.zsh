@@ -2003,6 +2003,7 @@ function worldbuilder_inject {
     set -e
     ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
     scp ${=ssh_cfg} ${imagesDir}/${${image/%:*}:t}.zip ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.zip
+    ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- mkdir -p ${${dest:-/tmp/images/barf}:h}
     ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- sudo unzip -q -o /tmp/images/${${image/%:*}:t}.zip -d ${dest:-/tmp/images/barf}
     ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.zip
   else

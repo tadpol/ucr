@@ -566,7 +566,7 @@ function ucr_tsdb_query {
   # Validate a list of the options we will care about.
   local opt_req=$(
     options_to_json \
-    start_time "[1-9][0-9]*(u|ms|s)?" \
+    start_time "[0-9]*(u|ms|s)?" \
     end_time "[1-9][0-9]*(u|ms|s)?" \
     relative_start "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
     relative_end "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \

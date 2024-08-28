@@ -1593,16 +1593,24 @@ function murdoc_rekey {
   local nodes=($(murdoc_ips))
   autoload -Uz zargs
 
-  function rekey_one() {
+  # parallel editing of the known_hosts causes data loss, but parallel appending at worse is random order.
+  # so, Do the edits (removals) one at a time, and the adds (appends) in parallel
+  # This works well because the remove action is just editing the local file, and thus quite fast.
+  # Adding a node key is slower, and that's the one we want in parallel.
+
+  function rekey_remove() {
     local node=$1
-    echo "Updating $node… "
-    (
-      ssh-keygen -R $node -f ~/.ssh/known_hosts > /dev/null 2>&1
-      ssh-keyscan -H $node >> ~/.ssh/known_hosts 2>/dev/null
-    ) 
+    echo "Removing $node… "
+    ssh-keygen -R $node -f ~/.ssh/known_hosts > /dev/null 2>&1
+  }
+  function rekey_add() {
+    local node=$1
+    echo "Adding $node… "
+    ssh-keyscan -H $node >> ~/.ssh/known_hosts 2>/dev/null
   }
 
-  zargs -P 5 -l 1 -- ${nodes} -- rekey_one
+  zargs -P 1 -l 1 -- ${nodes} -- rekey_remove
+  zargs -P 10 -l 1 -- ${nodes} -- rekey_add
 }
 
 function murdoc_sshto {

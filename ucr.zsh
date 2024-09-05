@@ -1538,6 +1538,32 @@ function jmq_links {
   fi
 }
 
+function jmq_work {
+  # work <ticket> [<parent>]
+  local key=${1:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  local parent=$2
+
+  local branchname="${JMQ_BRANCH_PREFIX}$key"
+
+  # if the branch already exists, then just check it out.
+  if [[ -n $(git branch --format '%(refname:short)' --list "*${key}") ]]; then
+    git checkout $branchname
+  else
+    # if a parent is given, then create branch there
+    if [[ -n "$parent" ]]; then
+      git checkout $parent
+    fi
+    git checkout -b $branchname
+  fi
+
+  # Now move the ticket to "In Progress"
+  jmq_move $key "In Progress"
+}
+
 function jmq_merge {
   # merge <ticket> [<branch>]
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}

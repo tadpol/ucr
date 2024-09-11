@@ -1573,7 +1573,7 @@ function jmq_merge {
     key=${JMQ_PROJECTS%%,*}-$key
   fi
 
-  local branch=$(git branch --format '%(refname:short)' --list "*${key}")
+  local branch=$(git branch --format '%(refname:short)' --ignore-case --list "*${key}")
   local prn=$(gh pr list --limit 1 --head $branch --json number --jq '.[].number')
 
   local remember=""

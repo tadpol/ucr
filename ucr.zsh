@@ -1547,7 +1547,7 @@ function jmq_work {
   fi
   local parent=$2
 
-  local branchname="${JMQ_BRANCH_PREFIX}$key"
+  local branchname="${JMQ_BRANCH_PREFIX}${key:l}"
 
   # if the branch already exists, then just check it out.
   if [[ -n $(git branch --format '%(refname:short)' --list "*${key}") ]]; then

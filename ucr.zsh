@@ -1754,7 +1754,7 @@ function murdoc_mongo {
   if [[ -n "${ucr_opts[jump]}" ]]; then
     local node=$(murdoc_ips)
     RE_MATCH_PCRE=1
-    if [[ "${url}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/([-0-9a-zA-Z]+))?$" ]]; then
+    if [[ "${url}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/([-_0-9a-zA-Z]+))?$" ]]; then
       url="${match[1]}://localhost:${match[6]:-27017}/${match[8]:-0}"
       ssh -NT -L ${match[6]:-27017}:${match[5]}:${match[6]:-27017} ${node} &
       typeset -g -x jump_pid=$!
@@ -1788,7 +1788,7 @@ function murdoc_psql {
   # if URL, convert to the many PG* envs
   if [[ -n "${PGURL}" ]]; then
     RE_MATCH_PCRE=1
-    if [[ "${PGURL}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/([0-9a-zA-Z]+))?$" ]]; then
+    if [[ "${PGURL}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/([-_0-9a-zA-Z]+))?$" ]]; then
       typeset -g -x PGUSER=${match[3]}
       typeset -g -x PGPASSWORD=${match[4]}
       typeset -g -x PGHOST=${match[5]}

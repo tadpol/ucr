@@ -1749,11 +1749,30 @@ function murdoc_mongo {
     url=$(fzf --select-1 --no-multi --nth=2 --with-nth=1 --height 30% <<< $from | awk '{print $2}' )
   fi
 
+  # If using a jump host was requested, then change host to localhost and use ssh to tunnel.
+  # Extract host and port from the URL and then rewrite the url to use localhost
+  if [[ -n "${ucr_opts[jump]}" ]]; then
+    local node=$(murdoc_ips)
+    RE_MATCH_PCRE=1
+    if [[ "${url}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/([-0-9a-zA-Z]+))?$" ]]; then
+      url="${match[1]}://localhost:${match[6]:-27017}/${match[8]:-0}"
+      ssh -NT -L ${match[6]:-27017}:${match[5]}:${match[6]:-27017} ${node} &
+      typeset -g -x jump_pid=$!
+      sleep 3
+    fi
+  fi
+
   # check for 'mongo' or 'mongosh' and use that.
   if command -v mongosh >/dev/null 2>&1; then
     mongosh "${url}"
   else
     mongo "${url}"
+  fi
+
+  # If there was a jump host used, then close the tunnel.
+  if [[ -n "${jump_pid}" ]]; then
+    kill ${jump_pid}
+    unset jump_pid
   fi
 }
 
@@ -1765,10 +1784,34 @@ function murdoc_psql {
       typeset -g -x ${match[1]}=${match[2]}
     fi
   done
+
+  # if URL, convert to the many PG* envs
   if [[ -n "${PGURL}" ]]; then
-    psql "$PGURL"
-  else
-    psql
+    RE_MATCH_PCRE=1
+    if [[ "${PGURL}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/([0-9a-zA-Z]+))?$" ]]; then
+      typeset -g -x PGUSER=${match[3]}
+      typeset -g -x PGPASSWORD=${match[4]}
+      typeset -g -x PGHOST=${match[5]}
+      typeset -g -x PGPORT=${match[6]}
+      [[ -n "${match[8]}" ]] && typeset -g -x PGDATABASE=${match[8]}
+    fi
+  fi
+
+  # If using a jump host was requested, then change host to localhost and use ssh to tunnel.
+  if [[ -n "${ucr_opts[jump]}" ]]; then
+    local node=$(murdoc_ips)
+    ssh -NT -L ${PGPORT:-5432}:${PGHOST}:${PGPORT:-5432} ${node} &
+    typeset -g -x jump_pid=$!
+    typeset -g -x PGHOST='localhost'
+    sleep 3
+  fi
+
+  psql
+
+  # If there was a jump host used, then close the tunnel.
+  if [[ -n "${jump_pid}" ]]; then
+    kill ${jump_pid}
+    unset jump_pid
   fi
 }
 
@@ -1813,12 +1856,27 @@ function murdoc_redis {
     fi
   fi
 
+  # If using a jump host was requested, then change host to localhost and use ssh to tunnel.
+  if [[ -n "${ucr_opts[jump]}" ]]; then
+    local node=$(murdoc_ips)
+    ssh -NT -L ${redis_keys[PORT]}:${redis_keys[HOST]}:${redis_keys[PORT]} ${node} &
+    typeset -g -x jump_pid=$!
+    redis_keys[HOST]='localhost'
+    sleep 3
+  fi
+
   if [[ -n "${redis_keys[PASSWORD]}" ]]; then
     typeset -g -x REDISCLI_AUTH=${redis_keys[PASSWORD]}
   fi
   shift 1
 
   redis-cli -h ${redis_keys[HOST]} -p ${redis_keys[PORT]} -n ${redis_keys[DB]} ${redis_keys[TLS]} "$@"
+
+  # If there was a jump host used, then close the tunnel.
+  if [[ -n "${jump_pid}" ]]; then
+    kill ${jump_pid}
+    unset jump_pid
+  fi
 }
 
 ############################################################################################################

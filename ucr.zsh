@@ -1778,12 +1778,18 @@ function murdoc_mongo {
 
 # Get envs for service, reshape into envs for psql, load them and call psql.
 function murdoc_psql {
+  local cmd=${ucr_opts[cmd]:-"psql"}
   local ens=($(murdoc_env $1 | grep DB_ | sed -e 's/^DB_/PG/'))
+  shift
   for r in $ens; do
     if [[ "$r" =~ "([a-zA-Z0-9_]+)=(.*)" ]]; then
       typeset -g -x ${match[1]}=${match[2]}
     fi
   done
+
+  if [[ -n "${PGUSERNAME}" && -z "${PGUSER}" ]]; then
+    typeset -g -x PGUSER=${PGUSERNAME}
+  fi
 
   # if URL, convert to the many PG* envs
   if [[ -n "${PGURL}" ]]; then
@@ -1806,7 +1812,7 @@ function murdoc_psql {
     sleep 3
   fi
 
-  psql
+  ${cmd} "$@"
 
   # If there was a jump host used, then close the tunnel.
   if [[ -n "${jump_pid}" ]]; then

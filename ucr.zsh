@@ -49,8 +49,12 @@ function load_from_ini {
   fi
 }
 
+config_location=$HOME/.${argv0}rc
+[[ -f "$HOME/.config/${argv0}/config" ]] && config_location=$HOME/.config/${argv0}/config
+
 # First load user defaults (under any existing ENVs)
-load_from_ini ~/.${argv0}rc default false
+load_from_ini "$config_location" default false
+
 # Then check for directory specifics
 load_config .env
 
@@ -73,7 +77,7 @@ function task_runner {
     elif [[ "$arg" =~ "^--sec=(.*)$" ]]; then
       # Handle --sec as it appears; this allows the keys it sets to be overridden by following args
       ucr_opts[sec]=${match[1]}
-      local cfg=${ucr_opts[cfg]:-~/.${argv0}rc}
+      local cfg=${ucr_opts[cfg]:-$config_location}
       load_from_ini "$cfg" "${ucr_opts[sec]}"
     elif [[ "$arg" =~ "^--" ]]; then
       # long option

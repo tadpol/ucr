@@ -146,21 +146,56 @@ function want_envs {
 
 # Checks that if an option was specified, it validates
 # Then outputs a JSON object of the options and values.
-# TODO: Add a way to specify default values and json types (so we can do numbers and booleans easily)
-# TODO: ? maybe if --help, then dump all of the options and exit?
+#
+# Values can be coerced into a type by appending `::<type>` to the key name.
+# types would just be the JSON ones, so string, number, boolean, array, object
+# default type is 'auto' which makes number like strings into numbers and the rest is strings.
+#
+#  ? maybe if --help, then dump all of the options and exit? this idea doesn't fit the usage of this function.
 function options_to_json {
   typeset -A maybe_opts=($*)
   local build_req=()
   local key
+  local key_type
   for key in ${(k)maybe_opts}; do
+    # if key has `::type` suffix, break that off and update key
+    if [[ $key =~ "::" ]]; then
+      key_type=${key##*::}
+      key=${key%%::*}
+    else
+      key_type=auto
+    fi
     if [[ -n "${ucr_opts[$key]}" ]]; then
       if [[ ${ucr_opts[$key]} =~ ${maybe_opts[$key]} ]]; then
-        # if it looks like a number, use a number.
-        if [[ ${ucr_opts[$key]} =~ "^[0-9]+$" ]]; then
-          build_req+="\"${key}\":${ucr_opts[$key]}"
-        else
-          build_req+="\"${key}\":\"${ucr_opts[$key]}\""
-        fi
+      	case $key_type in
+      	  number)
+      	    build_req+="\"${key}\":${ucr_opts[$key]}"
+      	    ;;
+      	  boolean)
+            # want to convert 1,yes,true,ok,y,t all to `true` and anything else to `false`
+            local trues=(1 yes true ok y t)
+            if [[ ${trues[(ie)${ucr_opts[$key]}]} -le ${#trues} ]]; then
+              build_req+="\"${key}\":true"
+            else
+              build_req+="\"${key}\":false"
+            fi
+      	    ;;
+      	  string)
+      	    build_req+="\"${key}\":\"${ucr_opts[$key]}\""
+            ;;
+          array|object|json)
+            build_req+="\"${key}\":$(jq -c <<< ${ucr_opts[$key]})"
+            ;;
+      	  *)
+            # should be auto; 
+            # if it looks like a number, use a number.
+            if [[ ${ucr_opts[$key]} =~ "^[0-9]+$" ]]; then
+              build_req+="\"${key}\":${ucr_opts[$key]}"
+            else
+              build_req+="\"${key}\":\"${ucr_opts[$key]}\""
+            fi
+      	    ;;
+        esac
       else
         echo "Option: '$key' is not valid according to ${maybe_opts[$key]}" >&2
         exit 3

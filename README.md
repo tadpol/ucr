@@ -12,12 +12,13 @@ Ucr was an acronym for something, but I've long forgotten what it was.  I call i
 
 Copy `ucr.zsh` into your PATH somewhere, renaming it to `ucr`.  Also set it as executable if it is not already.
 
-You can also link or rename the script and it will only find the tasks with that name as the prefix.  With the current release there are four tools available.
+You can also link or rename the script and it will only find the tasks with that name as the prefix.  With the current release there are five tools available.
 
 1. ucr
 2. jmq
-3. murdoc
-4. worldbuilder
+3. exo
+4. murdoc
+5. worldbuilder
 
 ### Dependencies
 
@@ -49,6 +50,10 @@ ucr tries to find login info using either `op`, `security` (on macos), or a buil
 - zip
 
 Jmq exclusively uses the `--netrc` option to `curl` to manage login info.
+
+#### Exo
+
+- [yq](https://mikefarah.gitbook.io/yq)
 
 #### Murdoc
 
@@ -94,7 +99,7 @@ After all options and keys have been removed from the argument list, the remaini
 
 If there is a `.env` file in the current directory, all of the key=values in it will get loaded into the ENV.
 
-A sectioned config file can be put at $HOME. (`.{scriptname}rc`) This follows a simple INI format.  Everything before the first section will always get loaded.  Following sections can be loaded with the `--sec=<section>` option.  All of these are loaded into the ENV.
+A sectioned config file can be put at `$HOME/.config/{scriptname}/config`. (The old location of `$HOME/.{scriptname}rc` will be checked if there is no file in .config) This follows a simple INI format.  Everything before the first section will always get loaded.  Following sections can be loaded with the `--sec=<section>` option.  All of these are loaded into the ENV.
 
 Keys on the command line before `--sec=` will get overwritten, where keys after it will override what is in the config.  `--sec=` can be used multiple times to load multiple sections if you really want.
 

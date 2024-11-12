@@ -1,0 +1,339 @@
+#!/usr/bin/env zsh
+# Bunch of shortcuts for dealing with Murano Docker environments
+
+##############################################################################
+# Set the script name, ulcer-core uses this to find functions and setup the environment
+argv0=${${0:t}:r}
+
+# Load the ulcer-core.zsh
+ulcer_core=$(whence -p ulcer-core.zsh)
+if [[ -n $ulcer_core ]]; then
+	source $ulcer_core
+else
+	echo "Error: ulcer-core.zsh not found"
+	exit 1
+fi
+
+##############################################################################
+# Define the tasks for this tool
+
+function murdoc_ips {
+  # Get the nodes in the swarm
+  # Historically, these have been IPv4 addresses, but everything here should work with IPv6 or hostnames as well.
+  local all=()
+  # Check for a hardcoded list of IPs
+  if [[ -n ${MURDOC_NODES} ]]; then
+    all=(${(s: :)MURDOC_NODES})
+  else
+    # Otherwise go fetch the dynamic list
+    want_envs MURDOC_IPS_URL ".+"
+    all=($(curl -s "${MURDOC_IPS_URL}" | jq -r '.items[0].subsets[0].addresses[] | .ip'))
+  fi
+  # unless want all, pick one randomly
+  if [[ -z "${ucr_opts[all]}" ]]; then
+    print -r $all[(RANDOM%${#all[@]})+1]
+  else
+    printf "%s\n" "${all[@]}"
+  fi
+}
+
+function murdoc_rekey {
+  # refresh/replace the ssh known_hosts entries for the swarm
+  ucr_opts[all]=1
+  local nodes=($(murdoc_ips))
+  autoload -Uz zargs
+
+  # parallel editing of the known_hosts causes data loss, but parallel appending at worse is random order.
+  # so, Do the edits (removals) one at a time, and the adds (appends) in parallel
+  # This works well because the remove action is just editing the local file, and thus quite fast.
+  # Adding a node key is slower, and that's the one we want in parallel.
+
+  function rekey_remove() {
+    local node=$1
+    echo "Removing $node… "
+    ssh-keygen -R $node -f ~/.ssh/known_hosts > /dev/null 2>&1
+  }
+  function rekey_add() {
+    local node=$1
+    echo "Adding $node… "
+    ssh-keyscan -H $node >> ~/.ssh/known_hosts 2>/dev/null
+  }
+
+  zargs -P 1 -l 1 -- ${nodes} -- rekey_remove
+  zargs -P 10 -l 1 -- ${nodes} -- rekey_add
+}
+
+function murdoc_sshto {
+  # ssh to a node in the swarm
+  # default is to randomly pick one, but --pick will prompt for a selection
+  [[ -n ${ucr_opts[pick]} ]] && ucr_opts[all]=1
+  local node=$(murdoc_ips | fzf -1 --no-multi --prompt="SSH to: " --header="Select a node" --height=30%)
+  local cmd="${@}"
+  # if node is localhost, then don't ssh
+  if [[ $node = "localhost" ]]; then
+    eval $cmd
+  else
+    exec ssh $node $cmd
+  fi
+}
+
+function murdoc_inspect_on {
+  # run docker inspect on a node
+  # If localhost, then don't ssh
+  #
+  # Because this gets used by zargs, the *last* parameter is the node, and the priors are the args to docker inspect.
+	local args=($@)
+  [[ ${#args} = 0 ]] && args=(localhost)
+  # get last item in args
+  local node=${args[-1]}
+  # remove last item from args
+  args=(${args[1,-2]})
+  # if no args, use all containers
+  [[ ${#args} = 0 ]] && args=('$(docker ps -q)')
+  local cmd="docker inspect ${args[@]}"
+
+  # replace 'docker' with 'sudo docker' in all occurrences if --sudo
+  if [[ -n "${ucr_opts[sudo]}" || -n "$MURDOC_OPTS_SUDO" ]]; then
+    cmd=${cmd//docker/sudo docker}
+  fi
+  
+  # if node is localhost, then don't ssh
+  if [[ $node = "localhost" ]]; then
+    eval $cmd
+  else
+    ssh $node $cmd
+  fi
+}
+
+
+function murdoc_inspect {
+  # For starts, always run on one node. (this is how it all worked before)
+  local nodes=($(murdoc_ips))
+  local args=($@)
+  murdoc_inspect_on ${args[@]} ${nodes[1]}
+}
+
+function murdoc_status {
+  filter='sort_by(.Name)|.[]|[.Name, .State.Status, .State.Health.Status]|@csv'
+  murdoc_inspect | jq -r "${filter}" | \
+    mlr --icsv --opprint --implicit-csv-header --barred --right label container,status,health \
+    then sort -f container
+}
+
+function murdoc_names {
+  murdoc_inspect | jq -r 'map(.Name) | sort | .[]'
+}
+
+function murdoc_namer {
+  # If exists AND younger than 2 days, then cache_file is not empty. (use the cache file)
+  # Otherwise, update cache
+  if [[ ! -f ~/.murdoc_names_cache ]]; then
+    murdoc_names | tr -d / > ~/.murdoc_names_cache
+  fi
+  cache_file=~/.murdoc_names_cache(N,md-2)
+  if [[ -z "$cache_file" ]]; then
+    murdoc_names | tr -d / > ~/.murdoc_names_cache
+  fi
+  fzf -1 --no-multi --query "${1:-m}" < ~/.murdoc_names_cache
+}
+
+function murdoc_env {
+  local key=$(murdoc_namer ${1:?Missing Container Name})
+  murdoc_inspect $key | jq -r '.[]|.Config.Env[]'
+}
+
+function murdoc_labels {
+  local key=$(murdoc_namer ${1:?Missing Container Name})
+  murdoc_inspect $key | jq -r '.[0].Config.Labels | to_entries | .[] | .key + "=" + .value'
+}
+
+function murdoc_commit {
+  local key=$(murdoc_namer ${1:?Missing Container Name})
+  murdoc_inspect $key | \
+    jq -r '.[0].Config.Labels | to_entries | map(select(.key | test("commit"; "i"))) | .[] | [.key, .value]|@csv' | \
+    mlr --icsv --opprint --implicit-csv-header --headerless-csv-output --no-color cat
+}
+
+# Get envs for service, reshape into envs for mongo, load them and call mongo.
+function murdoc_mongo {
+  local prefix
+  if [[ -n "${ucr_opts[log]}" ]]; then
+    prefix=LOG_MONGODB_
+  fi
+  if [[ -n "${ucr_opts[prefix]}" ]]; then
+    prefix=${ucr_opts[prefix]}
+  fi
+  local url
+  if [[ -n "${prefix}" ]]; then
+  	# use prefix
+    url=($(murdoc_env $1 | grep ^${prefix}_URL |sed -e "s/^${prefix}_URL//" ))
+  else
+    # If no --prefix and multiple _URL matches, then ask which one to use.
+    local from=$(murdoc_env $1 | grep 'MONGO.*URL'| sed -E 's/^([^=]+)=(.*)$/\1\t\2/')
+    url=$(fzf --select-1 --no-multi --nth=2 --with-nth=1 --height 30% <<< $from | awk '{print $2}' )
+  fi
+
+  # If using a jump host was requested, then change host to localhost and use ssh to tunnel.
+  # Extract host and port from the URL and then rewrite the url to use localhost
+  #
+  # !!! The traditional way of doing a jump host doesn't work with mongodb+srv 
+  # Need something like a proxy running on the jump host or VPN or …
+  if [[ -n "${ucr_opts[jump]}" ]]; then
+    local node=$(murdoc_ips)
+    RE_MATCH_PCRE=1
+    if [[ "${url}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/(.+))?$" ]]; then
+      # if this is a 'mongodb+srv' then we have some DNS queries to do first…
+      #
+      # First get the actual hosts and ports from the DNS SRV records
+      if [[ "${match[1]}" = "mongodb+srv" ]]; then
+        local srv_hosts=($(dig +short SRV _mongodb._tcp.${match[5]} | awk '{print $4}'))
+        local srv_ports=($(dig +short SRV _mongodb._tcp.${match[5]} | awk '{print $3}'))
+        local srv_opts=$(dig +short TXT ${match[5]} | sed -e 's/"//g' -e 's/;/ /g')
+        # Now, if there are multiple hosts, then pick one randomly.
+        if [[ ${#srv_hosts} -gt 1 ]]; then
+          local idx=$((RANDOM % ${#srv_hosts}))
+          typeset -g -x match[5]=${srv_hosts[$idx]}
+          typeset -g -x match[6]=${srv_ports[$idx]}
+        fi
+        # Merge options if needed
+        if [[ -n "${srv_opts}" ]]; then
+          typeset -g -x match[8]="${match[8]}&${srv_opts}&tls=true&tlsAllowInvalidHostnames=true"
+        fi
+        typeset -g -x match[1]="mongodb"
+      fi
+
+			# Rebuild the url with the new host and port and options
+      url="${match[1]}://${match[2]}localhost:${match[6]:-27017}/${match[8]:-console}"
+      # Start the jumper
+      ssh -NT -L ${match[6]:-27017}:${match[5]}:${match[6]:-27017} ${node} &
+      typeset -g -x jump_pid=$!
+      sleep 3
+    fi
+  fi
+
+  # check for 'mongo' or 'mongosh' and use that.
+  if command -v mongosh >/dev/null 2>&1; then
+    mongosh --verbose "${url}"
+  else
+    mongo "${url}"
+  fi
+
+  # If there was a jump host used, then close the tunnel.
+  if [[ -n "${jump_pid}" ]]; then
+    kill ${jump_pid}
+    unset jump_pid
+  fi
+}
+
+# Get envs for service, reshape into envs for psql, load them and call psql.
+function murdoc_psql {
+  local cmd=${ucr_opts[cmd]:-"psql"}
+  local ens=($(murdoc_env $1 | grep DB_ | sed -e 's/^DB_/PG/'))
+  shift
+  for r in $ens; do
+    if [[ "$r" =~ "([a-zA-Z0-9_]+)=(.*)" ]]; then
+      typeset -g -x ${match[1]}=${match[2]}
+    fi
+  done
+
+  if [[ -n "${PGUSERNAME}" && -z "${PGUSER}" ]]; then
+    typeset -g -x PGUSER=${PGUSERNAME}
+  fi
+
+  # if URL, convert to the many PG* envs
+  if [[ -n "${PGURL}" ]]; then
+    RE_MATCH_PCRE=1
+    if [[ "${PGURL}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/([-_0-9a-zA-Z]+))?$" ]]; then
+      typeset -g -x PGUSER=${match[3]}
+      typeset -g -x PGPASSWORD=${match[4]}
+      typeset -g -x PGHOST=${match[5]}
+      typeset -g -x PGPORT=${match[6]}
+      [[ -n "${match[8]}" ]] && typeset -g -x PGDATABASE=${match[8]}
+    fi
+  fi
+
+  # If using a jump host was requested, then change host to localhost and use ssh to tunnel.
+  if [[ -n "${ucr_opts[jump]}" ]]; then
+    local node=$(murdoc_ips)
+    ssh -NT -L ${PGPORT:-5432}:${PGHOST}:${PGPORT:-5432} ${node} &
+    typeset -g -x jump_pid=$!
+    typeset -g -x PGHOST='localhost'
+    sleep 3
+  fi
+
+  ${cmd} "$@"
+
+  # If there was a jump host used, then close the tunnel.
+  if [[ -n "${jump_pid}" ]]; then
+    kill ${jump_pid}
+    unset jump_pid
+  fi
+}
+
+# Get envs for service, reshape into envs for redis, load them and call redis-cli.
+# Redis-cli only takes password via env, others need options.
+function murdoc_redis {
+  local prefix=REDIS_
+  if [[ -n "${ucr_opts[live]}" ]]; then
+    prefix=LIVE_DATA_REDIS_
+  fi
+  if [[ -n "${ucr_opts[prefix]}" ]]; then
+    prefix=${ucr_opts[prefix]}
+  fi
+
+  ens=($(murdoc_env $1 | grep ^${prefix} |sed -e "s/^${prefix}//" ))
+
+  # HOST, PORT, PASSWORD, USER, DB
+  typeset -A redis_keys
+  redis_keys[PORT]=6379
+  redis_keys[HOST]=127.0.0.1
+  redis_keys[USER]=''
+  redis_keys[DB]=0
+  redis_keys[TLS]=''
+  for r in $ens; do
+    if [[ "$r" =~ "([a-zA-Z0-9_]+)=(.*)" ]]; then
+      redis_keys[${match[1]}]=${match[2]}
+    fi
+  done
+
+  [[ -n "${redis_keys[TLS]}" ]] && redis_keys[TLS]='--tls'
+
+  if [[ -n "${redis_keys[URL]}" ]];then
+    RE_MATCH_PCRE=1
+    # redis-cli -u redis://[username:password@]host[:port][/db-number] [options]
+    if [[ "${redis_keys[URL]}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/([0-9]+))?$" ]]; then
+      redis_keys[USER]=${match[3]}
+      redis_keys[PASSWORD]=${match[4]}
+      redis_keys[HOST]=${match[5]}
+      redis_keys[PORT]=${match[6]}
+      redis_keys[DB]=${match[8]:-0}
+      [[ "rediss" = "${match[1]}" ]] && redis_keys[TLS]='--tls' || redis_keys[TLS]=''
+    fi
+  fi
+
+  # If using a jump host was requested, then change host to localhost and use ssh to tunnel.
+  if [[ -n "${ucr_opts[jump]}" ]]; then
+    local node=$(murdoc_ips)
+    ssh -NT -L ${redis_keys[PORT]}:${redis_keys[HOST]}:${redis_keys[PORT]} ${node} &
+    typeset -g -x jump_pid=$!
+    redis_keys[HOST]='localhost'
+    sleep 3
+  fi
+
+  if [[ -n "${redis_keys[PASSWORD]}" ]]; then
+    typeset -g -x REDISCLI_AUTH=${redis_keys[PASSWORD]}
+  fi
+  shift 1
+
+  redis-cli -h ${redis_keys[HOST]} -p ${redis_keys[PORT]} -n ${redis_keys[DB]} ${redis_keys[TLS]} "$@"
+
+  # If there was a jump host used, then close the tunnel.
+  if [[ -n "${jump_pid}" ]]; then
+    kill ${jump_pid}
+    unset jump_pid
+  fi
+}
+
+##############################################################################
+# Finally, run the task runner to find and run the task based on arguments
+task_runner "$*"

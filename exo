@@ -1,0 +1,181 @@
+#!/usr/bin/env zsh
+# A cli tool for ExoSense.
+
+##############################################################################
+# Set the script name, ulcer-core uses this to find functions and setup the environment
+argv0=${${0:t}:r}
+
+# Load the ulcer-core.zsh
+ulcer_core=$(whence -p ulcer-core.zsh)
+if [[ -n $ulcer_core ]]; then
+	source $ulcer_core
+else
+	echo "Error: ulcer-core.zsh not found"
+	exit 1
+fi
+
+##############################################################################
+# Define the tasks for this tool
+
+function exo_q {
+  want_envs EXO_HOST "^[\.A-Za-z0-9-]+$" EXO_TOKEN "^[A-Za-z0-9+/]+={0,2}$"
+  if [[ -z ${EXO_GQL_HOST} ]]; then
+    EXO_GQL_HOST=${EXO_HOST}/api
+  else
+    want_envs EXO_GQL_HOST "^[\.A-Za-z0-9-]+$"
+  fi
+  
+  local query=$1
+  local variables=${2:-'{}'}
+  local operationName=${3:-''}
+
+  local req=$(jq -n -c --arg operationName "$operationName" --arg query "$query" --argjson variables "$variables" \
+    '{
+      operationName: $operationName,
+      query: $query,
+      variables: $variables
+    }')
+
+  v_curl -s https://${EXO_GQL_HOST}/graphql \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Automation ${EXO_TOKEN}" \
+    -H "Origin: https://${EXO_HOST}" \
+    -d "$req"
+}
+
+function exo_me {
+  exo_q 'fragment UserFragment on User {
+    id
+    email
+    createdAt
+    updatedAt
+    createdBy {
+      id
+      name
+      email
+    }
+  }
+  query me { currentUser { ...UserFragment } }' '{}' me
+}
+
+function exo_group_list {
+  local filters=$(options_to_json \
+    group_type_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" \
+    group_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" \
+    text "^.+$"
+  )
+  [[ -z "$filters" ]] && exit 4
+  local vars=$(jq -n -c --argjson filters "$filters" '{ filters: $filters }')
+
+  exo_q 'query groups($filters: GroupFilters) { groups(filters: $filters) { id name } }' "$vars"
+}
+
+function exo_group_root {
+  exo_q 'query { groups(filters: { text: "root" }) { id name } }' | \
+  jq -r '.[].data.groups.[] | select(.name == "root") | .id'
+}
+
+function exo_asset_list {
+  local filters=$(
+    options_to_json \
+    group_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" \
+    text "^.+$" \
+    orderBy "^(name|created_date|level)$" \
+    sort "^(asc|desc)$" \
+  )
+  [[ -z "$filters" ]] && exit 4
+  local vars=$(jq -n -c --argjson filters "$filters" '{ filters: $filters }')
+
+  exo_q 'query list($filters: AssetFilters) { assets(filters: $filters) { id name } }' "$vars"
+}
+
+function exo_asset_export {
+  local asset_id=${1:?Need asset id}
+  exo_q 'mutation CreateTemplateYAML($id: ID!) {  createTemplateYAML(id: $id) }' "{\"id\":\"${asset_id}\"}" | \
+    jq -r '.[].data.createTemplateYAML'
+}
+
+function exo_asset_delete {
+  local asset_id=${1:?Need asset id}
+  exo_q 'mutation deleteAsset($id: ID!) { deleteAsset(id: $id) }' "{\"id\":\"${asset_id}\"}"
+}
+
+function exo_asset_create {
+  local template=${1:?Need template file}
+  local assetName=$2
+
+  # If no name given, use what's in template
+  if [[ -z "$assetName" ]]; then
+    assetName=$(yq '.template.asset.name' $template)
+  fi
+
+  local groupId=$ucr_opts[group]
+  if [[ -z "$groupId" ]]; then
+    groupId=$(exo_group_root)
+  fi
+
+  # Channel mapping will likely be the weirdest part of this.
+  # Left blank, you get an asset with disconnected root signals.
+  #
+  # Need to ask the template for which device channels it needs
+  # For starts, lets assume those devices and channels exist
+  local cm=$(yq -o json '.template.channels | to_entries | [ .[] |{"from":.key, "to": .value.id } ]' $template)
+  # The easiest mapping now is to just change the PID and DID
+  # !!! This works, but I don't like it. As I work thru more complex mappings maybe a better solution will come to mind.
+  if [[ -z "$ucr_opts[pid]" ]]; then
+    cm=$(jq --arg pid "$ucr_opts[pid]" 'map(.to = (.to|split(".") | .[0] = $pid | join(".")) )' <<< $cm)
+  fi
+  if [[ -z "$ucr_opts[did]" ]]; then
+    cm=$(jq --arg did "$ucr_opts[did]" 'map(.to = (.to|split(".") | .[1] = $did | join(".")) )' <<< $cm)
+  fi
+
+  local vars=$(jq -n -c --arg name "$assetName" --arg group "$groupId" --arg template "$(< $template)" --argjson cm "$cm" '{
+    "newAsset": { "name": $name },
+    "groupId": $group,
+    "channelMapping": $cm,
+    "yaml": $template
+  }')
+
+  exo_q \
+  'mutation createAssetFromT($yaml: String, $newAsset: Asset2Create, $groupId: ID!, $channelMapping: [ChannelMapping]) {
+    createAssetFromT(yaml: $yaml, newAsset: $newAsset, group_id: $groupId, channelMapping: $channelMapping) { id }
+  }' "$vars"
+}
+
+function exo_template_list {
+  exo_q 'query { templates2 { id name currentVersion } }'
+}
+
+function exo_product_list {
+  exo_q 'query { products { pid name isSimulator settings { fqdn } } }'
+}
+
+function exo_device_list {
+  local filters=$(options_to_json \
+    text "^.+$" \
+    group_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+  )
+  [[ -z "$filters" ]] && exit 4
+  local v=$(options_to_json product "^[a-zA-Z0-9]+$")
+  [[ -z "$v" ]] && exit 4
+  local vars=$(jq -c --argjson filters "$filters" '{ filters: $filters } + .' <<< $v)
+
+  exo_q 'query devices($filters: DeviceFilters, $product: String) { devices(filters: $filters, product: $product) { id pid identity } }' "$vars"
+}
+
+function exo_device_configIo {
+  local pid=${1:?Need product id}
+  local did=${2:?Need device id}
+  local id=${pid}.${did}
+
+  exo_q 'query configIo($id: ID!) { device(id: $id) { pid state { name setString reportedString } } }' "{\"id\":\"$id\"}" | \
+    jq '.[].data.device.state[] | select(.name == "config_io") | (.setString // .reportedString) | fromjson'
+}
+
+function exo_device_channels {
+  exo_device_configIo "$@" | jq '.channels | keys'
+}
+
+##############################################################################
+# Finally, run the task runner to find and run the task based on arguments
+task_runner "$*"

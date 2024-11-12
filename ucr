@@ -1,0 +1,921 @@
+#!/usr/bin/env zsh
+# A cli to Murano solutions, for both cloud and on-prem
+
+##############################################################################
+# Set the script name, ulcer-core uses this to find functions and setup the environment
+argv0=${${0:t}:r}
+
+# Load the ulcer-core.zsh
+ulcer_core=$(whence -p ulcer-core.zsh)
+if [[ -n $ulcer_core ]]; then
+	source $ulcer_core
+else
+	echo "Error: ulcer-core.zsh not found"
+	exit 1
+fi
+
+##############################################################################
+# Define some helper functions
+
+# Helper function to get passwords out of a netrc file
+function scan_netrc {
+  local host_to_find=$1
+  local user_to_find=$2
+  local netrc=($(< ~/.netrc ))
+  # This does not correctly handle `macrodef`
+  # netrc is a series of key-value pairs seperated by anysort of white space.
+  # (netrc explicitly does not handle password with whitespace in them)
+  # Strictly, netrc only matches on `machine` and there can only be one of each.
+  # But this matches both machine and login, and handles multiple machines
+  local key=''
+  local state=START
+  local found_password=''
+  for i in $netrc
+  do
+  # echo "[k: $key s: $state] $i" >&2
+  case $i in
+    machine)
+      key=machine
+      state=machine
+      ;;
+    login)
+      key=login
+      ;;
+    password)
+      key=password
+      ;;
+    *)
+      if [[ $key = machine && "$i" = "$host_to_find" ]]; then
+        state=MACHINE_FOUND
+      fi
+      if [[ $state = MACHINE_FOUND* && $key = password ]]; then
+        found_password=$i
+        if [[ $state == MACHINE_FOUND_LOGIN ]]; then
+          echo $found_password
+          return 0
+        else
+          state=MACHINE_FOUND_PASSWORD
+        fi
+      fi
+      if [[ $state = MACHINE_FOUND* && $key = login && "$i" = "$user_to_find" ]]; then
+        if [[ $state == MACHINE_FOUND_PASSWORD ]]; then
+          echo $found_password
+          return 0
+        else
+          state=MACHINE_FOUND_LOGIN
+        fi
+      fi
+      ;;
+  esac
+  done
+}
+
+# Helper function for getting a password from a hierarchy of password stores.
+function password_for {
+  # Two params, 1: host, 2: user
+  # If env password set, just return that
+  if [[ -v UCR_PASSWORD ]]; then
+    echo $UCR_PASSWORD
+    return
+  fi
+  # Check .netrc
+  if [ -f ${HOME}/.netrc ]; then
+    password=$(scan_netrc $1 $2)
+    if [[ -n "$password" ]]; then
+      echo $password
+      return
+    fi
+  fi
+
+  # On Macs, try Keychain
+  # !!! untested
+  if (which security >/dev/null); then
+    password=$(security find-internet-password -a "$2" -s "$1" -w 2>/dev/null)
+    if [[ -z "$password" ]]; then
+      password=$(security find-generic-password -a "$2" -s "$1" -w 2>/dev/null)
+    fi
+    if [[ -n "$password" ]]; then
+      echo $password
+      return
+    fi
+  fi
+}
+
+# Get a murano login token and save it in env to use by following commands.
+# Just smart enough not to call more than once per evocation, could save token somewhere for multiple.
+# Not worth the extra work.
+function get_token {
+  if [[ -z "$UCR_TOKEN" ]]; then
+    # echo "X: $psd" >&2
+    # Murano doesn't accept basic auth…
+    local req=""
+    if [[ "$UCR_USER" =~ '^op:' || "$UCR_PASSWORD" =~ '^op:' ]] && (which op >/dev/null); then
+      # They have 1password and are using it, so op run
+      req=$(op run --no-masking -- jq -n '{"email": $ENV.UCR_USER, "password": $ENV.UCR_PASSWORD}')
+    else
+      # Try other ways
+      local psd=$(password_for $UCR_HOST $UCR_USER)
+      req=$(jq -n --arg psd "$psd" '{"email": $ENV.UCR_USER, "password": $psd}')
+    fi
+    # echo "X: $req" >&2
+    export UCR_TOKEN=$(curl -s https://${UCR_HOST}/api:1/token/ -H 'Content-Type: application/json' -d "$req" | jq -r .token)
+  fi
+}
+
+##############################################################################
+# Define the tasks for this tool
+
+# Repeating this in every command gets messy; so we'll do it once here.
+ucr_base_url='${UCR_SCHEME:-https}://${UCR_HOST}/${UCR_URL_PREFIX:-api:1}'
+
+# Everything here is designed to go thru BIZAPI.  A lot of the stuff here is
+# historical from blind discovery.  There are more 'correct' ways to talk to services within a solution.
+# It would be really nice to be able to also talk directly to dispatcher/api.
+# I _think_ that is possible, but can we use the same URLs with just a different prefix to do that?
+#
+# http://127.0.0.1:4020/api/v1/
+# UCR_SCHEME=http UCR_HOST=127.0.0.1:4020 UCR_URL_PREFIX=api/v1 UCR_TOKEN=' '
+#
+#  !!AH-HA! BIZAPI is mostly just a proxy to peg-api.  So we can just change the base url to talk to peg-api directly.
+# 
+# The newer "better" way that doesn't require getting the UUID of the service doesn't work when going direct to peg-api.
+# So there is just a few commands that are using the new way, and those are going to need to be reworked.
+
+
+function ucr_token {
+  get_token
+  echo $UCR_TOKEN
+}
+
+function ucr_dump_script {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/route/${UCR_SID}/script \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_dump_source_map {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/route/${UCR_SID}/sourcemap \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_env_get {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/env \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_env_set {
+  # <key> <value> [<key <value> …]
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+
+  local method=PUT
+  if [[ -n "$ucr_opts[overwrite]" ]]; then
+    method=POST
+  fi
+
+  # build values req
+  local req=$(jq -n -c '. + ([$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/env \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -X $method \
+    -d "$req"
+}
+
+function ucr_env_del {
+  # <key> [<key> …]
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+
+  # req is an object with each key set to null
+  local req=$(jq -n -c '. + ([$ARGS.positional[]|{"key":.,"value":null}]|from_entries)' --args -- "${@}")
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/env \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -X PUT \
+    -d "$req"
+}
+
+function ucr_solution_info {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID} \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_solution_create {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  # ??? is this the same for going thru bizapi and direct pegapi?
+  local domain=${1:?Need domain}
+  local type="application" # or m2connector
+  if [[ -n "$ucr_opts[m2]" ]]; then
+    type="m2connector"
+  fi
+  local template='{}'
+  if [[ -n "$ucr_opts[file]" ]]; then
+    template='{"source":{ "from": "file", "path": "/tmp/custom-solution-templates/'"$ucr_opts[file]"'"}}'
+  fi
+  local exchangelist=''
+  if [[ -n "$ucr_opts[exchange]" ]]; then
+    exchangelist="X-exosite-exchange-id: $ucr_opts[exchange]"
+  fi
+
+  local req=$(jq -n -c --arg type "$type" --arg domain "$domain" --argjson template "$template" '{
+				"name": $ENV.UCR_SID,
+				"domain": $domain,
+				"business_id": ($ENV.UCR_BID // ""),
+				"template": $type,
+				"services": [],
+				"env": {},
+			} + $template')
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID} \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -H 'Content-Type: application/json' \
+    -H "$exchangelist" \
+    -d "$req"
+
+}
+
+function ucr_services {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_service_uuid {
+  ucr_service_details $1
+}
+
+function ucr_service_usage {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service=${1:?Need service name}
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${(L)service}/info \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_service_details {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service=${1:?Need service name}
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${(L)service} \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_service_add {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service=${1:?Need service name}
+  local req=$(jq -n -c --arg service "${(L)service}" --arg sid "$UCR_SID" '{"solution_id": $sid, "service": $service}')
+  # erm.  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${(L)service} \
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_service_delete {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service=${1:?Need service name}
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${(L)service} \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -X DELETE
+}
+
+function ucr_service_schema {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service=${1:?Need service name}
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/service/${(L)service}/schema \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+# Business are a bizapi concept; they are not used in peg-api.
+function ucr_business_solutions {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_BID "^[a-zA-Z0-9]+$"
+  get_token
+
+  v_curl -s "${(e)ucr_base_url}/business/${UCR_BID}/solution/" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_business_solution_delete {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_BID "^[a-zA-Z0-9]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+
+  v_curl -s "${(e)ucr_base_url}/business/${UCR_BID}/solution/${UCR_SID}" -X DELETE \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_business_get {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_BID "^[a-zA-Z0-9]+$"
+  get_token
+
+  v_curl -s "${(e)ucr_base_url}/business/${UCR_BID}" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_template_update {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local repo_url
+  if [[ $# > 0 ]]; then
+    repo_url=$1
+  else
+    repo_url=https://github.com/${${$(git remote get-url origin)#git@github.com:}%%.git}
+    repo_url+="/tree/$(git rev-parse --abbrev-ref HEAD)"
+  fi
+  local req=$(jq -n -c --arg url "$repo_url" '{"url": $url}')
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/update \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_logs {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local opt_req=$(
+    options_to_json \
+    limit "[1-9][0-9]*" \
+    offset "[1-9][0-9]*"
+  )
+  [[ -z "$opt_req" ]] && exit 4
+
+  local q=$(jq -r 'to_entries|map("\(.key)=\(.value)")|join("&")' <<< $opt_req)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/logs\?${q} \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_tsdb_query {
+  # metric names are just args, tags are <tag name>@<tag value>
+  # others are all --options=value
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+  # Validate a list of the options we will care about.
+  local opt_req=$(
+    options_to_json \
+    start_time "[0-9]*(u|ms|s)?" \
+    end_time "[1-9][0-9]*(u|ms|s)?" \
+    relative_start "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+    relative_end "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+    sampling_size "[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+    limit "[1-9][0-9]*" \
+    epoch "(u|ms|s)" \
+    mode "(merge|split)" \
+    fill "(null|previous|none|[1-9][0-9]*|~s:.+)" \
+    order_by "(desc|asc)" \
+    aggregate "((avg|min|max|count|sum),?)+"
+  )
+  [[ -z "$opt_req" ]] && exit 4
+
+  local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
+    {
+      "tags": map(select(.value)) | group_by(.key) | map({"key":.[0].key,"value":(map(.value) | if length==1 then first else . end)}) | from_entries,
+      "metrics": map(select(.value | not) | .key)
+    })' --args -- "${@}" <<< $opt_req)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/query \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_tsdb_recent {
+  # recent <tag name> <metrics>… @<tag values>… 
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  local tag_name=${1:?Need tag name}
+  shift
+  [[ $# == 0 ]] && echo "Missing metrics and tag values" >&2 && exit 2
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+
+  local req=$(jq -n -c --arg tn "${tag_name}" '{
+    "metrics": ($ARGS.positional | map(select(. | startswith("@") | not))),
+    "tag_name": $tn,
+    "tag_values": ($ARGS.positional | map(select(. | startswith("@"))) | map(split("@") | .[1] )),  
+  }' --args -- "${@}")
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/recent \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_tsdb_list_tags {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listTags \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" | jq '.tags |keys'
+}
+
+function ucr_tsdb_list_metrics {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listMetrics \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" | jq .metrics
+  # someday: Look for .next, and handle repeated calls if need be
+}
+
+function ucr_tsdb_exports {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+  local opt_req=$(
+    options_to_json \
+    limit "[1-9][0-9]*"
+  )
+  [[ -z "$opt_req" ]] && exit 4
+
+  v_curl -s "${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/exportJobList?limit=${ucr_opts[limit]:-100}" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_tsdb_export_info {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+  local job_id=${1:?Need job id argument}
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/exportJobInfo \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "{\"job_id\":\"${job_id}\"}"
+}
+
+function ucr_tsdb_export {
+  # metric names are just args, tags are <tag name>@<tag value>, formats are <metric>#<action>#<value>
+  #
+  # Formating parameters:
+  # ORDER MATTERS! FE: round before label is different than label before round
+  #
+  # <metric>#label#<string>
+  # 3456789#label#foo
+  #   Prefix value with 'foo'
+  #
+  # <metric>#round#<number>
+  # 3456789#round#9
+  #   Round by 9
+  #
+  # <metric>#rename#<string>
+  # 34567890#rename#bob
+  #   Replace metric name with 'bob'
+  #
+  # <metric>#replace#<regexp>#<replace>
+  # 123456#replace#([0-9])([0-9])#\2-\1
+  #   Do regexp on value. replace uses '\1' for capture groups.
+  #
+  # <metric>|timestamp#datetime#<date format>#<offset>
+  # 98765#datetime#year_%Y#-4
+  #   Apply a datetime format to the value. Value should be microseconds since the EPOCH.
+  #   Can use the `--timestamp` and `--offset` to shortcut for the `timestamp` column.
+
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+  # Validate a list of the options we will care about.
+  # Ignored query options: (passing them does nothing)
+  #  mode "(merge|split)"
+  # Illegal query options: (passing them returns error)
+  #  sampling_size "[1-9][0-9]*(u|ms|s|m|h|d|w)?"
+  #  aggregate "((avg|min|max|count|sum),?)+" 
+  local opt_req=$(
+    options_to_json \
+    start_time "[1-9][0-9]*(u|ms|s)?" \
+    end_time "[1-9][0-9]*(u|ms|s)?" \
+    relative_start "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+    relative_end "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+    limit "[1-9][0-9]*" \
+    epoch "(u|ms|s)" \
+    fill "(null|previous|none|[1-9][0-9]*|~s:.+)" \
+    order_by "(desc|asc)"
+  )
+  [[ -z "$opt_req" ]] && exit 4
+
+  # A few filtering only options.
+  # These are all just once things, so it is cleaner to have them as options than as the '#' syntax
+  local formated=$(
+    options_to_json \
+    timestamp ".*"\
+    offset "-?[1-9][0-9]*" \
+    include "[a-zA-Z0-9_,]+"
+  )
+  [[ -z "$formated" ]] && exit 4
+
+  local filename=${ucr_opts[output]}
+  if [[ -z "$filename" ]]; then
+    filename="$(date +%s)_auto.csv"
+  fi
+  # if [[ "$filename" =~ "[\r\n\t\f\v ]" ]]; then
+  #   echo "output file name cannot have spaces ($filename)" >&2
+  #   exit 5
+  # fi
+
+
+  local req=$(jq --arg fn "$filename" --argjson ft "$formated" '{
+    "query": (. + ($ARGS.positional | {
+      "tags": ([.[] | select(contains("@")) | split("@") | {"key": .[0], "value": .[1]}] | group_by(.key) |
+        map({"key":.[0].key,"value":(map(.value) | if length==1 then first else . end)}) | from_entries),
+      "metrics": [.[]|select(contains("@") or contains("#")|not)]
+    })),
+    "filename": $fn,
+    "format": (($ARGS.positional | [.[] | select(contains("#")) | split("#") | {
+        "metric": .[0], "fn": .[1], "a": .[2], "b": .[3]
+      }] | group_by(.metric) | map({"key":.[0].metric, "value": map(
+        if .fn == "round" then {"round": .a|tonumber}
+        elif .fn == "replace" then {replace: { match: .a, to: .b } }
+        elif .fn == "datetime" then {datetime: { dt_format: (.a // "%Y-%m-%dT%H:%M:%S.%f%z"), offset: (.b // 0 | tonumber) }}
+        else { (.fn): .a }
+        end
+      )}) | from_entries ) + if ($ft|has("timestamp") or has("offset")) then
+        { "timestamp": [{datetime:{dt_format: ($ft.timestamp // "%Y-%m-%dT%H:%M:%S.%f%z"), offset: ($ft.offset // 0 | tonumber)}}] }
+      else
+        {}
+      end + if ($ft|has("include")) then
+        {"tags": [{normalize: $ft.include|split(",")}]}
+      else
+        {tags: [{discard: true}]}
+      end
+    )
+  }' --args -- "${@}" <<< $opt_req)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/export \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_tsdb_write {
+  # write [--ts=<timestamp>] <metric> <value> [<metric> <value> …] [<tag>@<value> …]
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+
+  local opt_req=$(options_to_json ts "[1-9][0-9]*(u|ms|s)?")
+  [[ -z "$opt_req" ]] && exit 4
+
+  local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
+    { "tags": (map(select(.value)) | from_entries),
+      "metrics": ([map(select(.value|not)|.key) | _nwise(2) | {"key": .[0], "value": .[1]}] | from_entries)
+    })' --args -- "${@}" <<< $opt_req)
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/write \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_tsdb_multiWrite {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
+
+  # take STDIN
+  local req=$(jq)
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/multiWrite \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_keystore_list {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
+  local match=${1:-*}
+  local req=$(jq -n -c --arg match "$match" '{"match":$match,"cursor":0}')
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_keystore_get {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
+  [[ $# == 0 ]] && echo "Missing keys to get" >&2 && exit 2
+  local req=$(jq -n -c '{"keys":$ARGS.positional}' --args -- "${@}")
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/mget \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_keystore_set {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
+  local key=${1:?Need key argument}
+  local value=${2:?Need value to set}
+  if [[ "$value" = "-" ]]; then
+    value=$(</dev/stdin)
+  fi
+
+  local req=$(jq -n -c --arg key "$key" --arg value "$value" '{"key":$key,"value":$value}')
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/set \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_keystore_delete {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
+  [[ $# == 0 ]] && echo "Missing keys to delete" >&2 && exit 2
+  local req=$(jq -n -c '{"keys":$ARGS.positional}' --args -- "${@}")
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/mdelete \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"  
+}
+
+function ucr_keystore_cmd {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
+  local cmd=${1:?Need command argument}
+  local key=${2:?Need key argument}
+  shift 2
+  local req=$(jq -n -c --arg key "$key" --arg cmd "$cmd" \
+    '{"key":$key,"command":$cmd, "args": $ARGS.positional}' \
+    --args -- "${@}")
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/command \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req" 
+}
+
+function ucr_insight_info {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service=${1:?Need Insight Service Name}
+  local service_uuid=$(ucr_service_uuid ${(L)service} | jq -r .id)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_insight_functions {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service=${1:?Need Insight Service Name}
+  local service_uuid=$(ucr_service_uuid ${(L)service} | jq -r .id)
+  local opt_req=$(
+    options_to_json \
+    limit "[1-9][0-9]*" \
+    group_id "[0-9A-Za-z_]*"
+  )
+  [[ -z "$opt_req" ]] && exit 4
+  local req=$(jq -c '{"limit":1000, "group_id":""} + .' <<< $opt_req)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listInsights \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_content_info {
+  get_token
+  local service_uuid=$(ucr_service_uuid content | jq -r .id)
+  local id=${1:?Need file id}
+
+  local req="{\"id\": \"$id\"}"
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_content_list {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  # list [--op=AND|OR] [--stop=#] [<prefix filter>] [<tag name filter>@<tag value filter> ...]
+  get_token
+  local service_uuid=$(ucr_service_uuid content | jq -r .id)
+  local opt_req=$(options_to_json \
+    op "^(AND|OR)$" 
+  )
+  [[ -z "$opt_req" ]] && exit 4
+
+  local p_req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
+    {
+      "tags": (map(select(.value)) | from_entries | tojson),
+      "prefix": (map(select(.value|not)|.key) | first),
+      "full": true
+    } | del(.[] | select(. == null)))' --args -- "${@}" <<< $opt_req)
+
+  local prior_count=1
+  local total_count=0
+  local stop_after=${ucr_opts[stop]:-999999999}
+  local cursor=''
+
+  # first call always happens and has no cursor.
+  local ret=$(
+    v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+      -H 'Content-Type: application/json' \
+      -H "Authorization: token $UCR_TOKEN" \
+      -d "$p_req"
+  )
+  prior_count=$(jq -r length <<< $ret)
+  total_count=$(( total_count + prior_count ))
+  cursor=$(jq -r 'last | .id' <<< $ret)
+  # Now 'stream' results
+  jq -c -M '.[]' <<< $ret
+
+  # Loop advancing cursor until an empty reply
+  while [[ prior_count -gt 0 && total_count -lt stop_after ]]; do
+    local req=$(jq -c --arg cursor "$cursor" '. + {"cursor": $cursor}' <<< $p_req)
+    local ret=$(
+      v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+        -H 'Content-Type: application/json' \
+        -H "Authorization: token $UCR_TOKEN" \
+        -d "$req"
+    )
+    prior_count=$(jq -r length <<< $ret)
+    total_count=$(( total_count + prior_count ))
+    cursor=$(jq -r 'last | .id' <<< $ret)
+    # Now 'stream' results
+    jq -c -M '.[]' <<< $ret
+  done
+}
+
+function ucr_content_delete {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid content | jq -r .id)
+  local req=$(jq -n -c '{ "body" : $ARGS.positional }' --args -- "$@")
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/deleteMulti \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_content_download {
+  # doesn't actually download, just returns a URL to download from.
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid content | jq -r .id)
+  local cid=${1:?Need content id to download}
+  local opt_req=$(options_to_json \
+    expires_in "^\d+$" \
+  )
+  [[ -z "$opt_req" ]] && exit 4
+  local req=$(jq -c --arg cid "$cid" '. + {"id": $cid|@uri }' <<< $opt_req)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/download \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_content_upload {
+  # Doesn't actually upload, just returns a cURL to upload to.
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid content | jq -r .id)
+  local cid=${1:?Need content id to upload}
+  local opt_req=$(options_to_json \
+    expires_in "^\d+$" \
+    type "^.+$" \
+  )
+  [[ -z "$opt_req" ]] && exit 4
+
+  # A GET req with url encoded file name and query options for the rest.
+  local req=$(jq -n -c --arg cid "$cid" '{"id": $cid|@uri }')
+  local psu=$(v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/upload \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+  )
+
+  # Convert to new curl params
+  local params=($(jq '(.inputs|to_entries|[.[]|"-F", "\"\(.key)=\(.value)\""]) + (["-F", "\"\(.field)=@\(.id)\"", .url]) |.[]' -r <<< $psu))
+  echo curl -X POST "${params[@]}"
+}
+
+function ucr_ws_info {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid websocket | jq -r .id)
+  local skid=${1:?Need websocket id}
+  local req=$(jq -c -n --arg skid "$skid" '{"socket_id": $skid}')
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$req"
+}
+
+function ucr_ws_list {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid websocket | jq -r .id)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" 
+}
+
+function ucr_device_list {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+  local service_uuid=$(ucr_service_uuid device2 | jq -r .id)
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listIdentities \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_device_info {
+  ucr_service_details device2
+}
+
+function ucr_device_state {
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  local did=${1:?Need device id}
+  get_token
+  local service_uuid=$(ucr_service_uuid device2 | jq -r .id)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/getIdentityState \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "{\"identity\": \"${did}\" }"
+}
+
+# This sets via the cloud side API.
+# function ucr_device_state_set { }
+
+function ucr_device_write {
+  # This writes via the external HTTP API.
+  # Only one resource at a time for now. Could expand to allow multiple, but not needed today.
+  # ucr device write <did> <resource> <value>
+  local did=${1:?Need device id}
+  local res=${2:?Need a resource to write}
+  local val=${3:?Need a value}
+  get_token
+  local details=$(ucr_service_details device2)
+  local d_host=$(jq -r .parameters.fqdn <<< $details)
+  local vm=$(jq -r .solution_id <<< $details)
+
+  # server actually only supports a subset of form-urlencoded, so manually pack it
+  val=$(jq -r '@uri' <<< $val)
+  v_curl -s https://${d_host}/onep:v1/stack/alias \
+    -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
+    -H "X-Exosite-CIK: ${UCR_CIK}" \
+    -d "${res}=${val}"
+}
+
+function ucr_device_activate {
+  # This activates via the external HTTP API.
+  local did=${1:?Need device id}
+  get_token
+  local details=$(ucr_service_details device2)
+  local d_host=$(jq -r .parameters.fqdn <<< $details)
+
+  # server actually only supports a subset of form-urlencoded, so manually pack it
+  # did=$(jq -r '@uri' <<< $did)
+  v_curl -s https://${d_host}/provision/activate \
+    -d "id=${did}" \
+    -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8'
+}
+
+##############################################################################
+# Finally, run the task runner to find and run the task based on arguments
+task_runner "$*"

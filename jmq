@@ -1,0 +1,495 @@
+#!/usr/bin/env zsh
+# A cli to Jira. Isn't complete, but rather just the things I need.
+
+##############################################################################
+# Set the script name, ulcer-core uses this to find functions and setup the environment
+argv0=${${0:t}:r}
+
+# Load the ulcer-core.zsh
+ulcer_core=$(whence -p ulcer-core.zsh)
+if [[ -n $ulcer_core ]]; then
+	source $ulcer_core
+else
+	echo "Error: ulcer-core.zsh not found"
+	exit 1
+fi
+
+##############################################################################
+# Define the tasks for this tool
+
+function jmq_q {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  # --fields=*all to get everything
+  local jql=($@)
+  local fields=(key summary)
+  if [[ -n ${ucr_opts[fields]} ]]; then
+    fields=(${(s:,:)ucr_opts[fields]})
+  fi
+  local req=$(jq -n -c --arg jql "${(j: :)jql}" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req"
+}
+
+function jmq_pr {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  key=${key##*/}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  if [[ $key =~ "^[a-zA-Z]+-[0-9]+$" ]]; then
+    key="key=$key"
+  fi
+  local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": ["key","summary"] }')
+
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req" | jq -r '.issues[] | .fields.summary + " (" + .key + ")"' 2>/dev/null
+}
+
+function jmq_branch {
+  # Get the Key from the branch name
+  local ref=${$(git symbolic-ref --short HEAD 2>/dev/null || echo ""):t}
+  # Does this look like a Jira issue key? If so, use it. Otherwise return empty.
+  if [[ $ref =~ "^[a-zA-Z]+-[0-9]+$" ]]; then
+    echo $ref
+  fi
+}
+
+function jmq_next {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+
+  local summary=$(v_curl -s --netrc https://${JMQ_HOST}/rest/api/2/issue/${key}\?fields=summary | \
+    jq -r .fields.summary )
+
+  # Get what transitions can be made.
+  local transitions=$(v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions --netrc)
+
+  # Display menu list and ask which to take. (If only one, then just take that without asking)
+  local trn=$(jq -r '.transitions[] | [.id, .name] | @tsv' <<< $transitions | fzf \
+    --select-1 --no-multi --nth=2.. --with-nth=2.. --height 30% \
+    --prompt="Follow which transition? " \
+    --header="Summary: ${summary}")
+  if [[ -z "$trn" ]]; then
+    exit
+  fi
+  local transition_id=$(awk '{print $1}' <<< $trn )
+  # Take it
+  v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
+    --netrc \
+    -H 'Content-Type: application/json' \
+    -d "{\"transition\":{\"id\": ${transition_id} }}"
+}
+
+# Move tickets to named state
+# jmq move FOO-0000 In Progress
+function jmq_move {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  shift
+  if [[ $# < 1 ]]; then
+    echo "Missing state" >&2
+    exit 1
+  fi
+  local state="${(j: :)*}"
+
+  # Get what transitions can be made.
+  local transitions=$(v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions --netrc)
+
+  local inp_id=$(jq --arg nme "$state" '.transitions[]|select(.name==$nme)|.id' <<< $transitions)
+  if [[ -z "$inp_id" ]]; then
+    echo "Cannot directly transition to $state" 
+    exit
+  fi
+
+  v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
+    --netrc \
+    -H 'Content-Type: application/json' \
+    -d "{\"transition\":{\"id\": ${inp_id} }}"
+}
+
+function jmq_as_status {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local stat=${1:?Missing Issue Status}
+  local jql=(
+    "assignee = currentUser()"
+    "status = \"$stat\" ORDER BY Rank"
+  )
+  if [[ -z "${ucr_opts[all]}" ]]; then
+    jql=(
+      "project in (${JMQ_PROJECTS})"
+      $jql
+    )
+  fi
+  local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary"] }')
+
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req" | \
+    jq -r '.issues[] | [.key, .fields.summary] | @tsv' | \
+    mlr --itsv --opprint --implicit-csv-header --headerless-csv-output cat
+}
+
+function jmq_todo {
+  jmq_as_status "On Deck"
+}
+
+function jmq_doing {
+  jmq_as_status "In Progress"
+}
+
+function jmq_info {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  if [[ $key =~ "^[a-zA-Z]+-[0-9]+$" ]]; then
+    key="key=$key"
+  fi
+  local fields=(
+    key
+    summary
+    description
+    assignee
+    reporter
+    priority
+    issuetype
+    status
+    resolution
+    votes
+    watches
+    customfield_10820 # Tester
+    )
+  local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
+
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req" | jq -r '.issues[] | 
+      "        Key: \(.key)
+    Summary: \(.fields.summary)
+   Reporter: \(.fields.reporter.displayName)
+   Assignee: \(.fields.assignee.displayName)
+     Tester: \(.fields.customfield_10820.displayName?)
+       Type: \(.fields.issuetype.name) (\(.fields.priority.name))
+     Status: \(.fields.status.name) (Resolution: \(.fields.resolution.name))
+    Watches: \(.fields.watches.watchCount)  Votes: \(.fields.votes.votes)
+Description: \(.fields.description)"'
+}
+
+function jmq_status {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local statuses=("On Deck" "In Progress" "Validation")
+  local jql=(
+    "project in (${JMQ_PROJECTS})"
+    "status in (\"${(j:",":)statuses}\")"
+    "assignee = currentUser() ORDER BY Rank"
+  )
+  local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary","status"] }')
+
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req" | jq --argjson sts "[\"${(j:",":)statuses}\"]" -r '.issues |
+  group_by(.fields.status.name) |
+  map({"key": .[0].fields.status.name, "value": map([("- "+.key), .fields.summary] | @tsv) | join("\n")}) |
+  map(select([.key] | inside($sts))) |
+  map([(.key+":"), .value] | join("\n")) |
+  flatten | 
+  join("\n\n")'
+}
+
+function jmq_open {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+
+  open https://${JMQ_HOST}/browse/${(U)key}
+}
+
+function jmq_mdl {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+
+  print "[${(U)key}](https://${JMQ_HOST}/browse/${(U)key})"
+
+}
+
+# list files/attachments on a ticket
+function jmq_files {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  if [[ $key =~ "^[a-zA-Z]+-[0-9]+$" ]]; then
+    key="key=$key"
+  fi
+  local fields=(
+    key
+    summary
+    attachment
+    )
+  local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
+
+  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req" | \
+    jq -r '.issues[] | .fields.attachment[] | [.filename, .mimeType, .content]|@tsv' | 
+    mlr --itsv --implicit-csv-header --opprint label name,type,link
+}
+
+function jmq_attach {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  shift
+  if [[ $# = 0 ]]; then
+    echo "Missing files to upload"
+    exit 2
+  fi
+
+  for f in "$@"; do
+    if [[ -d "$f" ]]; then
+      local dst=$(mktemp -t ${f##*/}.XXXXXX.zip)
+      zip -r -q ${dst} ${f}
+      f=${dst}
+    fi
+    v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/attachments \
+    	-H 'X-Atlassian-Token: nocheck' \
+      --netrc \
+      -F "file=@${f}"
+  done
+
+}
+
+function jmq_labels {
+  # lables <tickets…>
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local keys=($@)
+  if [[ $# = 0 ]]; then
+    keys=($(jmq_branch))
+  fi
+  # in place, replace any numbers with the project prefix
+  for (( i=1; i <= ${#keys}; i++ )); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+      keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
+    fi
+  done
+  local jql="key in (${(j:,:)keys})"
+  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "labels"] }') 
+  local res=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req"
+    )
+    if [[ $# = 1 ]]; then
+      # if one key, then just print labels.
+      jq -r '.issues[0].fields.labels[]' <<< $res
+    else
+      # if many, then print yaml like keys and labels
+      jq -r '.issues[] | {(.key): .fields.labels} | to_entries | .[] | .key + ": " + (.value | join(", "))' <<< $res
+    fi
+}
+
+function jmq_label_add {
+  # label add <label> <tickets…>
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local label=${1:-Missing a label}
+  shift
+  local keys=($@)
+  if [[ $# = 0 ]]; then
+    keys=($(jmq_branch))
+  fi
+  # in place, replace any numbers with the project prefix
+  for (( i=1; i <= ${#keys}; i++ )); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+      keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
+    fi
+  done
+  
+  local req=$(jq -n -c --arg label "$label" '{"update":{"labels":[{"add":$label}]}}')
+
+  for key in $keys; do
+    v_curl -s -X PUT https://${JMQ_HOST}/rest/api/2/issue/${key} \
+      -H 'Content-Type: application/json' \
+      --netrc \
+      -d "$req"
+  done
+}
+
+function jmq_label_del {
+  # label add <label> <tickets…>
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local label=${1:-Missing a label}
+  shift
+  local keys=($@)
+  if [[ $# = 0 ]]; then
+    keys=($(jmq_branch))
+  fi
+  # in place, replace any numbers with the project prefix
+  for (( i=1; i <= ${#keys}; i++ )); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+      keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
+    fi
+  done
+  
+  local req=$(jq -n -c --arg label "$label" '{"update":{"labels":[{"remove":$label}]}}')
+
+  for key in $keys; do
+    v_curl -s -X PUT https://${JMQ_HOST}/rest/api/2/issue/${key} \
+      -H 'Content-Type: application/json' \
+      --netrc \
+      -d "$req"
+  done
+}
+
+function jmq_links {
+  # links <tickets>
+  # lists the links and types for one or more tickets
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local keys=($@)
+  if [[ $# = 0 ]]; then
+    keys=($(jmq_branch))
+  fi
+  # in place, replace any numbers with the project prefix
+  for (( i=1; i <= ${#keys}; i++ )); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+      keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
+    fi
+  done
+  # Setup to be future configurable
+  local line_opts_json='{"color":"red"}'
+
+  local jql="key in (${(j:,:)keys})"
+  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks", "fixVersions", "labels"] }') 
+  local res=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+    -H 'Content-Type: application/json' \
+    --netrc \
+    -d "$req"
+    )
+  local map=$( jq -r '[ .issues[] | .key as $issueKey |
+      .fields.issuelinks[] | 
+      if has("inwardIssue") then
+        [.type.name, .inwardIssue.key, $issueKey]
+      else
+        [.type.name, $issueKey, .outwardIssue.key]
+      end
+      ] | unique' <<< $res)
+
+  if [[ -n "${ucr_opts[dot]}" ]]; then
+    # as a graph thru dot
+    echo "digraph {"
+    # Subgraphs for releases
+    jq -r '[ .issues[] | .key as $issueKey |
+        .fields.fixVersions[] | 
+        {"key":$issueKey, "value": .name}
+      ] | reduce .[] as {$key,$value} ({}; .[$value] += [$key]) |
+      to_entries | 
+      map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n" + 
+        (.value | map(" \""+.+"\";") | join("\n")) + "\n}"
+        ) | join("\n")' <<< $res
+
+    # Subgraphs for labels (filter for specific labels?)
+    jq -r '[.issues[] | {"key":.key, "value":.fields.labels[]}] | reduce .[] as {$key,$value} ({}; .[$value] += [$key]) |
+      to_entries | map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n style=dashed;\n" + 
+        (.value | map(" \""+.+"\";") | join("\n")) + "\n}"
+        ) | join("\n")' <<< $res
+  
+    # Links
+    jq -r --argjson lineopts "$line_opts_json" '.[] | 
+      "\"\(.[1])\" -> \"\(.[2])\" [" +
+      (($lineopts) | to_entries | map("\(.key)=\(.value)") | join(", ")) +
+      "]"' <<< $map 
+    echo "}"
+  else
+    # as a table thru miller
+    jq -r '.[] | @csv' <<< $map | \
+      mlr --icsv --opprint --barred --implicit-csv-header label Type,From,To
+  fi
+}
+
+function jmq_work {
+  # work <ticket> [<parent>]
+  local key=${1:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  local parent=$2
+
+  local branchname="${JMQ_BRANCH_PREFIX}${key:l}"
+
+  # if the branch already exists, then just check it out.
+  if [[ -n $(git branch --format '%(refname:short)' --list "*${key}") ]]; then
+    git checkout $branchname
+  else
+    # if a parent is given, then create branch there
+    if [[ -n "$parent" ]]; then
+      git checkout $parent
+    fi
+    git checkout -b $branchname
+  fi
+
+  # Now move the ticket to "In Progress"
+  jmq_move $key "In Progress"
+}
+
+function jmq_merge {
+  # merge <ticket> [<branch>]
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  local into=${2:-stable}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+
+  local branch=$(git branch --format '%(refname:short)' --ignore-case --list "*${key}")
+  local prn=$(gh pr list --limit 1 --head $branch --json number --jq '.[].number')
+
+  local remember=""
+  local needs_stash=""
+
+  needs_stash="$(git status --untracked-files=no --porcelain)"
+  [[ -n "$needs_stash" ]] && git stash
+  remember=$(git symbolic-ref --quiet HEAD 2>/dev/null)
+
+  git checkout $into
+
+  git merge --no-ff -m "$(jmq_pr $key) (#$prn)" $branch
+
+  [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
+  [[ -n "$needs_stash" ]] && git stash pop
+}
+
+##############################################################################
+# Finally, run the task runner to find and run the task based on arguments
+task_runner "$*"

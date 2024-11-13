@@ -37,9 +37,10 @@ As ucr is just a schell script, the heavy lifting is done by other programs.  Fo
 #### Used by all
 
 - [ZSH](http://zsh.sourceforge.net)
-- [curl](https://curl.se)
+- [curl](https://curl.se) v8.3.0 or later
 - [jq](https://stedolan.github.io/jq/)
 - [fzf](https://github.com/junegunn/fzf#table-of-contents)
+- [op](https://developer.1password.com/docs/cli)
 - grep
 - sed
 - awk
@@ -58,8 +59,6 @@ ucr tries to find login info using either `op`, `security` (on macos), or a buil
 - [mlr](https://github.com/johnkerl/miller)
 - open
 - zip
-
-Jmq exclusively uses the `--netrc` option to `curl` to manage login info.
 
 #### Exo
 

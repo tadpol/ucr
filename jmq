@@ -28,7 +28,7 @@ function jmq_q {
   local req=$(jq -n -c --arg jql "${(j: :)jql}" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
   v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
-    --netrc \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req"
 }
 
@@ -47,7 +47,7 @@ function jmq_pr {
 
   v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
-    --netrc \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | jq -r '.issues[] | .fields.summary + " (" + .key + ")"' 2>/dev/null
 }
 
@@ -68,11 +68,13 @@ function jmq_next {
     key=${JMQ_PROJECTS%%,*}-$key
   fi
 
-  local summary=$(v_curl -s --netrc https://${JMQ_HOST}/rest/api/2/issue/${key}\?fields=summary | \
+  local summary=$(v_curl -s --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
+    https://${JMQ_HOST}/rest/api/2/issue/${key}\?fields=summary | \
     jq -r .fields.summary )
 
   # Get what transitions can be made.
-  local transitions=$(v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions --netrc)
+  local transitions=$(v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}')
 
   # Display menu list and ask which to take. (If only one, then just take that without asking)
   local trn=$(jq -r '.transitions[] | [.id, .name] | @tsv' <<< $transitions | fzf \
@@ -85,7 +87,7 @@ function jmq_next {
   local transition_id=$(awk '{print $1}' <<< $trn )
   # Take it
   v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
-    --netrc \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -H 'Content-Type: application/json' \
     -d "{\"transition\":{\"id\": ${transition_id} }}"
 }
@@ -107,7 +109,8 @@ function jmq_move {
   local state="${(j: :)*}"
 
   # Get what transitions can be made.
-  local transitions=$(v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions --netrc)
+  local transitions=$(v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}')
 
   local inp_id=$(jq --arg nme "$state" '.transitions[]|select(.name==$nme)|.id' <<< $transitions)
   if [[ -z "$inp_id" ]]; then
@@ -116,7 +119,7 @@ function jmq_move {
   fi
 
   v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
-    --netrc \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -H 'Content-Type: application/json' \
     -d "{\"transition\":{\"id\": ${inp_id} }}"
 }
@@ -138,7 +141,7 @@ function jmq_as_status {
 
   v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
-    --netrc \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | \
     jq -r '.issues[] | [.key, .fields.summary] | @tsv' | \
     mlr --itsv --opprint --implicit-csv-header --headerless-csv-output cat
@@ -180,7 +183,7 @@ function jmq_info {
 
   v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
-    --netrc \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | jq -r '.issues[] | 
       "        Key: \(.key)
     Summary: \(.fields.summary)
@@ -205,7 +208,7 @@ function jmq_status {
 
   v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
-    --netrc \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | jq --argjson sts "[\"${(j:",":)statuses}\"]" -r '.issues |
   group_by(.fields.status.name) |
   map({"key": .[0].fields.status.name, "value": map([("- "+.key), .fields.summary] | @tsv) | join("\n")}) |
@@ -258,7 +261,7 @@ function jmq_files {
 
   v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
-    --netrc \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | \
     jq -r '.issues[] | .fields.attachment[] | [.filename, .mimeType, .content]|@tsv' | 
     mlr --itsv --implicit-csv-header --opprint label name,type,link
@@ -285,7 +288,7 @@ function jmq_attach {
     fi
     v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/attachments \
     	-H 'X-Atlassian-Token: nocheck' \
-      --netrc \
+      --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
       -F "file=@${f}"
   done
 
@@ -308,7 +311,7 @@ function jmq_labels {
   local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "labels"] }') 
   local res=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
-    --netrc \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req"
     )
     if [[ $# = 1 ]]; then
@@ -341,7 +344,7 @@ function jmq_label_add {
   for key in $keys; do
     v_curl -s -X PUT https://${JMQ_HOST}/rest/api/2/issue/${key} \
       -H 'Content-Type: application/json' \
-      --netrc \
+      --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
       -d "$req"
   done
 }
@@ -367,7 +370,7 @@ function jmq_label_del {
   for key in $keys; do
     v_curl -s -X PUT https://${JMQ_HOST}/rest/api/2/issue/${key} \
       -H 'Content-Type: application/json' \
-      --netrc \
+      --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
       -d "$req"
   done
 }
@@ -393,7 +396,7 @@ function jmq_links {
   local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks", "fixVersions", "labels"] }') 
   local res=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
-    --netrc \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req"
     )
   local map=$( jq -r '[ .issues[] | .key as $issueKey |

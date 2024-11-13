@@ -216,6 +216,15 @@ function options_to_json {
 
 # Add a wrapper to curl that will print out the curls.
 function v_curl {
+  # only use `op ` if we are using an ENV variable
+  local use_op=false
+  for (( i = 1; i < $#argv; i++ )); do
+    if [[ "${argv[i]}" == --variable && "${argv[i+1]}" == %* ]]; then
+      use_op=true
+      break
+    fi
+  done
+
   # When --curl, print out a copy/pastable curl … that is also nice-ish to read.
   if [[ -n "$ucr_opts[curl]" ]]; then
     # Add quoting
@@ -240,9 +249,13 @@ function v_curl {
     fin+=${(j: :)line}
     echo ${(j: \\\n  :)fin} >&2
   fi
-  # Just skipping causes issues in some places where output is piped
+  # Just skipping causes issues in some places where output is piped. (you have been warned)
   if [[ -z "$ucr_opts[dry]" ]]; then
-    curl "$@"
+    if [[ "$use_op" = "true" ]]; then
+      op run -- curl "$@"
+    else
+      curl "$@"
+    fi
   fi
 }
 

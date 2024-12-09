@@ -157,6 +157,7 @@ function worldbuilder_where {
 function worldbuilder_build {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  local docker_tool=${WORLDBUILDER_DOCKER_TOOL:-nerdctl.lima}
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   [[ ! -v "type" ]] && typeset -g -x type=docker
   [[ ! -v "platform" ]] && typeset -g -x platform=linux/arm64
@@ -187,10 +188,8 @@ function worldbuilder_build {
         cp ~/.ssh/murano_builder murano-service-ssh-key
       fi
 
-    # nerdctl.lima build \
-     docker buildx build \
+    $docker_tool build \
       --label com.exosite.build.git_commit="$(git rev-parse HEAD)" \
-      --load \
       --tag "${image}" \
       --platform="${platform}" \
       .
@@ -198,12 +197,7 @@ function worldbuilder_build {
       test -e murano-service-ssh-key && rm murano-service-ssh-key
 
       # save image
-      docker save -o ${base}/${imagesDir}/${${image/%:*}:t}.tar "${image}"
-      # nerdctl.lima save -o /tmp/lima/${${image/%:*}:t}.tar "${image}"
-      # limactl copy default:/tmp/lima/${${image/%:*}:t}.tar ${base}/${imagesDir}/${${image/%:*}:t}.tar
-      # limactl shell default -- rm /tmp/lima/${${image/%:*}:t}.tar
-      # ?OR would this work?
-      # nerdctl.lima save "${image}" > ${base}/${imagesDir}/${${image/%:*}:t}.tar
+      $docker_tool save "${image}" > ${base}/${imagesDir}/${${image/%:*}:t}.tar
 
     elif [[ "$type" == "build" ]]; then
       # default to zipping the entire directory

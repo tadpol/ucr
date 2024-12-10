@@ -18,7 +18,9 @@ fi
 # Define the tasks for this tool
 
 function exo_q {
-  want_envs EXO_HOST "^[\.A-Za-z0-9-]+$" EXO_TOKEN "^[A-Za-z0-9+/]+={0,2}$"
+  # XXX: The token regex here doesn't match all actual tokens
+  # want_envs EXO_HOST "^[\.A-Za-z0-9-]+$" EXO_TOKEN "^[A-Za-z0-9+/]+={0,2}$"
+  want_envs EXO_HOST "^[\.A-Za-z0-9-]+$" EXO_TOKEN "^.+$"
   if [[ -z ${EXO_GQL_HOST} ]]; then
     EXO_GQL_HOST=${EXO_HOST}/api
   else
@@ -62,17 +64,77 @@ function exo_group_list {
   local filters=$(options_to_json \
     group_type_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" \
     group_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" \
-    text "^.+$"
+    text "^.+$" 
   )
   [[ -z "$filters" ]] && exit 4
-  local vars=$(jq -n -c --argjson filters "$filters" '{ filters: $filters }')
+  if [[ -n "$ucr_opts[includeAll]" ]]; then
+    ucr_opts[includeChildren]=true
+    ucr_opts[includeAssets]=true
+    ucr_opts[includeDevices]=true
+    ucr_opts[includeUsers]=true
+  fi
+  local options=$(options_to_json \
+    includeChildren::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$" \
+    includeAssets::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$" \
+    includeDevices::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$" \
+    includeUsers::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$"
+  )
+  [[ -z "$options" ]] && exit 4
+  local pagination=$(options_to_json limit::number "^[0-9]+$" offset::number "^[0-9]+$")
+  [[ -z "$pagination" ]] && exit 4
+  local vars=$(jq -n -c --argjson filters "$filters" \
+    --argjson opts "$options" \
+    --argjson pagination "$pagination" \
+    '$opts + { filters: $filters, pagination: $pagination }')
 
-  exo_q 'query groups($filters: GroupFilters) { groups(filters: $filters) { id name } }' "$vars"
+  exo_q 'query groups($filters: GroupFilters,
+    $includeChildren: Boolean = false,
+    $includeAssets: Boolean = false,
+    $includeDevices: Boolean = false,
+    $includeUsers: Boolean = false,
+    $pagination: Pagination = null
+  ) {
+    groups(filters: $filters, pagination: $pagination) {
+      id name parent_id
+      node_type_id custom_id description
+      assets(pagination: $pagination) @include(if: $includeAssets) { id name }
+      devices(pagination: $pagination) @include(if: $includeDevices) { id identity }
+      users(pagination: $pagination) @include(if: $includeUsers) { id email name }
+      children(pagination: $pagination) @include(if: $includeChildren) { id name }
+      totals {
+        devices @include(if: $includeDevices)
+        assets @include(if: $includeAssets)
+        groups @include(if: $includeChildren)
+        users @include(if: $includeUsers)
+      }
+    }
+  }' "$vars"
 }
 
 function exo_group_root {
   exo_q 'query { groups(filters: { text: "root" }) { id name } }' | \
-  jq -r '.[].data.groups.[] | select(.name == "root") | .id'
+  jq -r '.data.groups.[] | select(.name == "root") | .id'
+}
+
+function exo_group_create {
+  local name=${1:?Need group name}
+  local parentId=${2:-$(exo_group_root)}
+  # TODO: Add more options
+  # ??? Create from yaml file?
+
+  local vars=$(jq -n -c --arg name "$name" --arg parentId "$parentId" '{
+    newGroup: {
+      name: $name,
+      parent_node_id: $parentId
+    }
+  }')
+
+  exo_q 'mutation createGroup($newGroup: CreateGroup) { createGroup(group: $newGroup) { id } }' "$vars"
+}
+
+function exo_group_delete {
+  local group_id=${1:?Need group id}
+  exo_q 'mutation deleteGroup($id: ID!) { deleteGroup(id: $id) { id } }' "{\"id\":\"${group_id}\"}"
 }
 
 function exo_asset_list {
@@ -92,7 +154,7 @@ function exo_asset_list {
 function exo_asset_export {
   local asset_id=${1:?Need asset id}
   exo_q 'mutation CreateTemplateYAML($id: ID!) {  createTemplateYAML(id: $id) }' "{\"id\":\"${asset_id}\"}" | \
-    jq -r '.[].data.createTemplateYAML'
+    jq -r '.data.createTemplateYAML'
 }
 
 function exo_asset_delete {
@@ -169,7 +231,7 @@ function exo_device_configIo {
   local id=${pid}.${did}
 
   exo_q 'query configIo($id: ID!) { device(id: $id) { pid state { name setString reportedString } } }' "{\"id\":\"$id\"}" | \
-    jq '.[].data.device.state[] | select(.name == "config_io") | (.setString // .reportedString) | fromjson'
+    jq '.data.device.state[] | select(.name == "config_io") | (.setString // .reportedString) | fromjson'
 }
 
 function exo_device_channels {

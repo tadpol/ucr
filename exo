@@ -101,7 +101,7 @@ function exo_group_list {
       devices(pagination: $pagination) @include(if: $includeDevices) { id identity }
       users(pagination: $pagination) @include(if: $includeUsers) { id email name }
       children(pagination: $pagination) @include(if: $includeChildren) { id name }
-      totals {
+      totals(recurse: false) {
         devices @include(if: $includeDevices)
         assets @include(if: $includeAssets)
         groups @include(if: $includeChildren)
@@ -215,14 +215,67 @@ function exo_product_list {
 function exo_device_list {
   local filters=$(options_to_json \
     text "^.+$" \
-    group_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    group_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" \
+    status "^(provisioned|reprovision|whitelisted|expired|locked|devmode)$" \
+    health_status "^(healthy|timeout)$" \
+    sort "^(asc|desc)$" \
+    single::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$" \
+    onlyUnused::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$"
   )
   [[ -z "$filters" ]] && exit 4
-  local v=$(options_to_json product "^[a-zA-Z0-9]+$")
-  [[ -z "$v" ]] && exit 4
-  local vars=$(jq -c --argjson filters "$filters" '{ filters: $filters } + .' <<< $v)
+  local opts=$(options_to_json \
+    product "^[a-zA-Z0-9]+$" \
+    limit::number "^[0-9]+$" \
+    offset::number "^[0-9]+$"
+  )
+  [[ -z "$opts" ]] && exit 4
+  local vars=$(jq -c --argjson filters "$filters" '{ filters: $filters } + .' <<< $opts)
 
-  exo_q 'query devices($filters: DeviceFilters, $product: String) { devices(filters: $filters, product: $product) { id pid identity } }' "$vars"
+  exo_q 'query devices($filters: DeviceFilters, $product: String) {
+    devices(filters: $filters, product: $product) {
+      id pid identity
+      status
+    }
+  }' "$vars"
+}
+
+function exo_device_unclaimed {
+  local filters=$(options_to_json \
+    text "^.+$" \
+    group_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" \
+    status "^(provisioned|reprovision|whitelisted|expired|locked|devmode)$" \
+    health_status "^(healthy|timeout)$" \
+    sort "^(asc|desc)$" \
+    single::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$" \
+    onlyUnused::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$"
+  )
+  [[ -z "$filters" ]] && exit 4
+  local opts=$(options_to_json \
+    product "^[a-zA-Z0-9]+$" \
+    limit::number "^[0-9]+$" \
+    offset::number "^[0-9]+$"
+  )
+  [[ -z "$opts" ]] && exit 4
+
+  local vars=$(jq -n -c --argjson filter "$filters" '. + {"filter": $filter}' <<< $opts)
+
+  exo_q 'query GetUnclaimedDevices($filter: DeviceFilters, $limit: Int = 50, $offset: Int = 0, $product: String) {
+    unclaimedDevices(product: $product, filters: $filter, pagination: { limit: $limit, offset: $offset }) {
+      devices {
+        id pid identity
+      }
+      mayLoadMore
+    }
+  }' "$vars"
+}
+
+function exo_device_set_group {
+  local id=${1:?Need pid.did}
+  local group_id=${2:?Need group id}
+
+  exo_q 'mutation ($id: ID!, $group_id: ID!) {
+    updateDevice(id: $id, device: { group_id: $group_id }) { id }
+  }' "{\"id\":\"$id\",\"group_id\":\"$group_id\"}"
 }
 
 function exo_device_configIo {

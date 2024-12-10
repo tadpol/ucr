@@ -120,14 +120,30 @@ function exo_group_root {
 function exo_group_create {
   local name=${1:?Need group name}
   local parentId=${2:-$(exo_group_root)}
-  # TODO: Add more options
-  # ??? Create from yaml file?
+  local opts=$(options_to_json \
+    description "^.+$" \
+    custom_id "^.+$" \
+    node_type_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+  )
+  [[ -z "$opts" ]] && exit 4
 
-  local vars=$(jq -n -c --arg name "$name" --arg parentId "$parentId" '{
-    newGroup: {
+  local vars=$(jq -n -c --arg name "$name" --arg parentId "$parentId" --argjson opts "$opts" '{
+    newGroup: ($opts + {
       name: $name,
       parent_node_id: $parentId
-    }
+    })
+  }')
+
+  exo_q 'mutation createGroup($newGroup: CreateGroup) { createGroup(group: $newGroup) { id } }' "$vars"
+}
+
+function exo_group_create_from {
+  # Creates a group from a group info file
+  local parent_id=${1:?Need parent id}
+  local group_info=${2:?Need group info file}
+
+  local vars=$(jq -n -c --arg parent_id "$parent_id" --argjson group_info "$(< $group_info)" '{
+    newGroup: (($group_info | del(.id) | del(.parent_id)) + { parent_node_id: $parent_id })
   }')
 
   exo_q 'mutation createGroup($newGroup: CreateGroup) { createGroup(group: $newGroup) { id } }' "$vars"
@@ -160,7 +176,7 @@ function exo_asset_export {
 
 function exo_asset_delete {
   local asset_id=${1:?Need asset id}
-  exo_q 'mutation deleteAsset($id: ID!) { deleteAsset(id: $id) }' "{\"id\":\"${asset_id}\"}"
+  exo_q 'mutation deleteAsset($id: ID!) { deleteAsset(id: $id) { id } }' "{\"id\":\"${asset_id}\"}"
 }
 
 function exo_asset_create {
@@ -292,12 +308,65 @@ function exo_device_channels {
   exo_device_configIo "$@" | jq '.channels | keys'
 }
 
+function exo_rmstar {
+  # given a group id, delete everything in it
+  # !!! This really just exists for me to cleanup after testing sync-up.
+  local group_id=${1:?Need group id}
+
+  # Grab a full group dump to a temp file. Queries are slow enough that we want to minimize them
+  local groups_file=$(mktemp ${PWD}/_groups.json.XXXXXX)
+  ucr_opts[includeAssets]=true
+  ucr_opts[includeChildren]=true
+  ucr_opts[includeDevices]=true
+  ucr_opts[includeUsers]=true
+  # For now assuming we can get all groups in one query
+  exo_group_list > $groups_file
+
+  function _rm_stuff {
+    local group_id=$1
+    local group_dir=$(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .name' $groups_file)
+    echo "Empting group $group_id $group_dir"
+    # Delete assets
+    local assets=$(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .assets' $groups_file)
+    local asset_ids=($(jq -r '.[] | .id' <<< $assets))
+    for asset_id in $asset_ids; do
+    	echo "Deleting asset $asset_id"
+      exo_asset_delete $asset_id > /dev/null
+    done
+
+    # "Delete" devices
+    # local devices=($(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .devices[].id' $groups_file))
+    # for id in $devices; do
+    # 	# does this work? nope. 
+    #   # Actual device delete might be overkill for this
+    #   # would really rather just unclaim it, but not an option.
+    #   echo exo_device_set_group $id null
+    # done
+
+    # "Delete" users (remove from group)
+
+    # Delete children
+    local children=($(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .children[] | .id' $groups_file))
+    for child_id in $children; do
+      _rm_stuff $child_id
+    done
+
+    # Delete group
+    echo "Deleting group $group_id $group_dir"
+    exo_group_delete $group_id > /dev/null
+  }
+
+  _rm_stuff $group_id
+  rm -f $groups_file
+}
+
 function exo_sync_down {
   # Sync down the entire group structure
+  # This only works on things in the group tree, other things like IIMF, ConditionPolicies, etc are not included
   local root_group_id=${1:-$(exo_group_root)}
 
   # Grab a full group dump to a temp file. Queries are slow enough that we want to minimize them
-  local groups_file=$(mktemp ${PWD}/_groups.XXXXXX.json)
+  local groups_file=$(mktemp ${PWD}/_groups.json.XXXXXX)
   ucr_opts[includeAssets]=true
   ucr_opts[includeChildren]=true
   ucr_opts[includeDevices]=true
@@ -312,7 +381,8 @@ function exo_sync_down {
     mkdir -p $group_dir
     cd $group_dir
     # Infos are all files ending in .json
-    jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | del(.["assets","children","totals"])' $groups_file > group_info.json
+    jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | del(.["assets","children","totals","users","devices"])' \
+      $groups_file > group_info.json
     jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .devices' $groups_file > devices.json
     jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .users' $groups_file > users.json
 
@@ -338,6 +408,48 @@ function exo_sync_down {
 
   _sync_down_group $root_group_id
   rm -f $groups_file
+}
+
+# sync up will take a directory structure and sync it up to ExoSense
+# It optionally takes a group_id to put the structure under
+# ?If no group_id is given and the root of the directory isn't also root group, it will create a new group in root.
+# For starts, will just always create a new group in the specificed one (or root)
+# will look later into logic to uplift initial as root later
+function exo_sync_up {
+  local root_dir=${1:?Need root directory}
+  local root_id=${2:-$(exo_group_root)}
+
+  function _sync_up_group {
+    local group_dir=$1
+    local parent_id=$2
+    local group_name=${group_dir:t}
+    echo "Syncing group '$group_name' to $parent_id"
+    local group_id=$(exo_group_create_from $parent_id "$group_dir/group_info.json" | jq -r '.data.createGroup.id')
+
+    # Sync devices
+    # Check if device is already in a group, if so, skip.
+    # If not, set group to the new group.
+    local devices=($(jq -r '.[].id' $group_dir/devices.json))
+    for id in $devices; do
+      echo exo_device_set_group $id $group_id
+    done
+
+    # Sync users
+    # someday in the far far future. (if ever)
+
+    # Sync assets
+    for asset in $group_dir/*.yaml(N); do
+    	ucr_opts[group]=$group_id
+      exo_asset_create $asset
+    done
+
+    # Sync children
+    for child in $group_dir/*(/N); do
+      _sync_up_group $child $group_id
+    done
+  }
+
+  _sync_up_group $root_dir $root_id
 }
 
 ##############################################################################

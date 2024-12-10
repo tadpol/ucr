@@ -18,15 +18,16 @@ fi
 # Define the tasks for this tool
 
 function exo_q {
+  # FIXME: ugh, as written, you can't actually use this from the command line. Only works internally.
   # XXX: The token regex here doesn't match all actual tokens
   # want_envs EXO_HOST "^[\.A-Za-z0-9-]+$" EXO_TOKEN "^[A-Za-z0-9+/]+={0,2}$"
   want_envs EXO_HOST "^[\.A-Za-z0-9-]+$" EXO_TOKEN "^.+$"
   if [[ -z ${EXO_GQL_HOST} ]]; then
     EXO_GQL_HOST=${EXO_HOST}/api
   else
-    want_envs EXO_GQL_HOST "^[\.A-Za-z0-9-]+$"
+    want_envs EXO_GQL_HOST "^[\.A-Za-z0-9-]+(/.*)?$"
   fi
-  
+
   local query=$1
   local variables=${2:-'{}'}
   local operationName=${3:-''}
@@ -289,6 +290,54 @@ function exo_device_configIo {
 
 function exo_device_channels {
   exo_device_configIo "$@" | jq '.channels | keys'
+}
+
+function exo_sync_down {
+  # Sync down the entire group structure
+  local root_group_id=${1:-$(exo_group_root)}
+
+  # Grab a full group dump to a temp file. Queries are slow enough that we want to minimize them
+  local groups_file=$(mktemp ${PWD}/_groups.XXXXXX.json)
+  ucr_opts[includeAssets]=true
+  ucr_opts[includeChildren]=true
+  ucr_opts[includeDevices]=true
+  ucr_opts[includeUsers]=true
+  # For now assuming we can get all groups in one query
+  exo_group_list > $groups_file
+
+  function _sync_down_group {
+    local group_id=$1
+    local group_dir=$(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .name' $groups_file)
+    echo "Syncing group $group_id to $group_dir"
+    mkdir -p $group_dir
+    cd $group_dir
+    # Infos are all files ending in .json
+    jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | del(.["assets","children","totals"])' $groups_file > group_info.json
+    jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .devices' $groups_file > devices.json
+    jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .users' $groups_file > users.json
+
+    # Assets are all files ending in .yaml
+    local assets=$(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .assets' $groups_file)
+    local asset_ids=($(jq -r '.[] | .id' <<< $assets))
+    for asset_id in $asset_ids; do
+      local asset_name=$(jq -r --arg id "$asset_id" '.[] | select(.id == $id) | .name' <<< $assets)
+      # Convert any forward slash or colon to underscore
+      local asset_dir=${asset_name//[:\/]/_}.yaml
+      # touch $asset_dir
+      echo "Syncing asset $asset_id to $asset_dir in $group_dir"
+      exo_asset_export $asset_id > $asset_dir
+    done
+
+    local children=($(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .children[] | .id' $groups_file))
+    for child_id in $children; do
+      _sync_down_group $child_id
+    done
+
+    cd ..
+  }
+
+  _sync_down_group $root_group_id
+  rm -f $groups_file
 }
 
 ##############################################################################

@@ -144,7 +144,7 @@ function want_envs {
       echo "Missing ENV[$key]" >&2
       exit 2
     elif [[ ! "${(P)key}" =~ "${tests[$key]}" ]]; then
-      echo "ENV[$key] invalid by: ${tests[$key]}" >&2
+      echo "ENV[$key] (${(P)key}) invalid by: ${tests[$key]}" >&2
       exit 3
     fi
   done
@@ -163,16 +163,17 @@ function options_to_json {
   local build_req=()
   local key
   local key_type
-  for key in ${(k)maybe_opts}; do
+  for key_m in ${(k)maybe_opts}; do
     # if key has `::type` suffix, break that off and update key
-    if [[ $key =~ "::" ]]; then
-      key_type=${key##*::}
-      key=${key%%::*}
+    if [[ $key_m =~ "::" ]]; then
+      key_type=${key_m##*::}
+      key=${key_m%%::*}
     else
       key_type=auto
+      key=$key_m
     fi
     if [[ -n "${ucr_opts[$key]}" ]]; then
-      if [[ ${ucr_opts[$key]} =~ ${maybe_opts[$key]} ]]; then
+      if [[ ${ucr_opts[$key]} =~ ${maybe_opts[$key_m]} ]]; then
       	case $key_type in
       	  number)
       	    build_req+="\"${key}\":${ucr_opts[$key]}"
@@ -203,7 +204,7 @@ function options_to_json {
       	    ;;
         esac
       else
-        echo "Option: '$key' is not valid according to ${maybe_opts[$key]}" >&2
+        echo "Option: '$key' is not valid according to ${maybe_opts[$key_m]}" >&2
         exit 3
       fi
     fi

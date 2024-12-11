@@ -399,6 +399,17 @@ function exo_sync_down {
     jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .devices' $groups_file > devices.json
     jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .users' $groups_file > users.json
 
+    # Devices
+    local device_ids=(${(f)"$(jq -r '.[].id' < devices.json)"}) 
+    [[ ${#device_ids} -gt 0 ]] && mkdir -p devices
+    for id in $device_ids; do
+      local pid=${id%%.*}
+      local did=${id#*.}
+      local fnm=devices/${id//[:\/]/_}.json
+      echo "Syncing device $pid.$did to $fnm in $group_dir"
+      exo_device_configIo $pid $did > $fnm
+    done
+
     # Assets are all files ending in .yaml
     local assets=$(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .assets' $groups_file)
     local asset_ids=($(jq -r '.[] | .id' <<< $assets))

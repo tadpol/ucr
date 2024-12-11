@@ -208,6 +208,19 @@ function exo_asset_create {
     cm=$(jq --arg did "$ucr_opts[did]" 'map(.to = (.to|split(".") | .[1] = $did | join(".")) )' <<< $cm)
   fi
 
+  if [[ -n "$ucr_opts[map]" ]]; then
+    # Apply a mapping file to the channel map
+    # A mapping file is an array of `when`, `then` pairs. Each of those is a set of PID, DID, RID, CID to match and replace.
+    local map=$(yq -o json "$ucr_opts[map]")
+    cm=$(jq --argjson map "$map" 'map(
+      .to |= (
+        capture("^(?<pid>[^.]+)\\.(?<did>.+)\\.(?<rid>[^.]+)\\.(?<cid>.+)$") as $r | 
+        ($map | map( . as {$when,$then} | if ($r|contains($when)) then $r + $then else null end | select(.) ) ) | first |
+        "\(.pid).\(.did).\(.rid).\(.cid)"
+      )
+    )' <<< $cm)
+  fi
+
   local vars=$(jq -n -c --arg name "$assetName" --arg group "$groupId" --arg template "$(< $template)" --argjson cm "$cm" '{
     "newAsset": { "name": $name },
     "groupId": $group,

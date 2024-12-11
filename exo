@@ -253,18 +253,39 @@ function exo_device_list {
     onlyUnused::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$"
   )
   [[ -z "$filters" ]] && exit 4
+  if [[ -n "$ucr_opts[includeAll]" ]]; then
+    ucr_opts[includeRes]=true
+    ucr_opts[includeTags]=true
+  fi
   local opts=$(options_to_json \
     product "^[a-zA-Z0-9]+$" \
+    includeRes::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$" \
+    includeTags::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$" \
     limit::number "^[0-9]+$" \
     offset::number "^[0-9]+$"
   )
   [[ -z "$opts" ]] && exit 4
   local vars=$(jq -c --argjson filters "$filters" '{ filters: $filters } + .' <<< $opts)
 
-  exo_q 'query devices($filters: DeviceFilters, $product: String) {
+  exo_q 'query devices($filters: DeviceFilters,
+    $product: String,
+    $includeTags: Boolean = false,
+    $includeRes: Boolean = false) {
     devices(filters: $filters, product: $product) {
-      id pid identity
+      auth { type }
+      devmode
+      lastip
+      lastseen
+      locked
+      online
       status
+      id
+      identity
+      pid
+      resources @include(if: $includeRes) { id name sync settable }
+      parent { id name }
+      lastHeard
+      tags @include(if: $includeTags) { name value }
     }
   }' "$vars"
 }

@@ -155,17 +155,49 @@ function exo_group_delete {
 }
 
 function exo_asset_list {
+  # exo asset list [<options>] [<asset id> …]
   local filters=$(
     options_to_json \
     group_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" \
     text "^.+$" \
+    created_from "^.+$" \
+    created_to "^.+$" \
+    level "^(error|critical|warning|info|normal)(,(error|critical|warning|info|normal))?$" \
     orderBy "^(name|created_date|level)$" \
     sort "^(asc|desc)$" \
+    location::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$"
   )
   [[ -z "$filters" ]] && exit 4
-  local vars=$(jq -n -c --argjson filters "$filters" '{ filters: $filters }')
+  local pagination=$(options_to_json limit::number "^[0-9]+$" offset::number "^[0-9]+$")
+  [[ -z "$pagination" ]] && exit 4
+  local opts=$(options_to_json \
+    includeTemplates::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$" \
+    includeParent::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$" \
+    includeMeta::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$" \
+    includeLocation::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$"
+  )
+  [[ -z "$opts" ]] && exit 4
+  local vars=$(jq -n -c --argjson filters "$filters" \
+  	--argjson opts "$opts" \
+    --argjson pagination "$pagination" \
+    '$opts + { filters: ($filters | if has("level") then .level |= split(",") end ), pagination: $pagination } |
+    if ($ARGS.positional|length > 0) then .ids |= $ARGS.positional end'  --args -- "${@}")
 
-  exo_q 'query list($filters: AssetFilters) { assets(filters: $filters) { id name } }' "$vars"
+  exo_q 'query list($filters: AssetFilters,
+    $includeTemplates: Boolean = false,
+    $includeParent: Boolean = false,
+    $includeMeta: Boolean = false,
+    $includeLocation: Boolean = false,
+    $pagination: Pagination = null,
+    $ids: [ID] = null) {
+    assets(filters: $filters, ids: $ids, pagination: $pagination, includeTemplates: $includeTemplates) {
+      id name description
+      parent @include(if: $includeParent) { id name }
+      meta @include(if: $includeMeta)
+      location @include(if: $includeLocation) { mode signal }
+      template @include(if: $includeTemplates) { id name }
+    }
+   }' "$vars"
 }
 
 function exo_asset_export {

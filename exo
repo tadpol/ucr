@@ -321,7 +321,16 @@ function exo_device_unclaimed {
 }
 
 function exo_device_set_group {
-  local id=${1:?Need pid.did}
+  # exo device set-group (<pid.did>|<pid> <did>) <group id>
+  if [[ $1 == *.* ]]; then
+    local pid=${1%%.*}
+    local did=${1#*.}
+  else
+    local pid=$1
+    local did=$2
+    shift
+  fi
+  local id=${pid}.${did}
   local group_id=${2:?Need group id}
 
   exo_q 'mutation ($id: ID!, $group_id: ID!) {
@@ -330,8 +339,14 @@ function exo_device_set_group {
 }
 
 function exo_device_configIo {
-  local pid=${1:?Need product id}
-  local did=${2:?Need device id}
+  # exo device configIo (<pid.did>|<pid> <did>)
+  if [[ $1 == *.* ]]; then
+    local pid=${1%%.*}
+    local did=${1#*.}
+  else
+    local pid=$1
+    local did=$2
+  fi
   local id=${pid}.${did}
 
   exo_q 'query configIo($id: ID!) { device(id: $id) { pid state { name setString reportedString } } }' "{\"id\":\"$id\"}" | \
@@ -339,13 +354,31 @@ function exo_device_configIo {
 }
 
 function exo_device_channels {
+  # exo device channels (<pid.did>|<pid> <did>)
   exo_device_configIo "$@" | jq '.channels | keys'
 }
 
+function exo_device_delete {
+  # exo device delete (<pid.did>|<pid> <did>)
+  if [[ $1 == *.* ]]; then
+    local pid=${1%%.*}
+    local did=${1#*.}
+  else
+    local pid=$1
+    local did=$2
+  fi
+  local id=${pid}.${did}
+
+  exo_q 'mutation ($id: ID!) { deleteDevice(id: $id) { id } }' "{\"id\":\"$id\"}"
+}
+
 function exo_rmstar {
+  # exo rmstar [--deleteDevices] <group id to delete>
   # given a group id, delete everything in it
   # !!! This really just exists for me to cleanup after testing sync-up.
   local group_id=${1:?Need group id}
+
+  local root_group_id=$(exo_group_root) # Since we cannot unclaim devices, we have to move them to root
 
   # Grab a full group dump to a temp file. Queries are slow enough that we want to minimize them
   local groups_file=$(mktemp ${PWD}/_groups.json.XXXXXX)
@@ -369,15 +402,18 @@ function exo_rmstar {
     done
 
     # "Delete" devices
-    # local devices=($(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .devices[].id' $groups_file))
-    # for id in $devices; do
-    # 	# does this work? nope. 
-    #   # Actual device delete might be overkill for this
-    #   # would really rather just unclaim it, but not an option.
-    #   echo exo_device_set_group $id null
-    # done
+    local devices=($(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .devices[].id' $groups_file))
+    for id in $devices; do
+      if [[ $ucr_opts[deleteDevices] == true ]]; then
+        exo_device_delete $id
+      else
+        exo_device_set_group $id $root_group_id
+      fi
+    done
 
     # "Delete" users (remove from group)
+    # someday in the far far future. (if ever)
+    # If user is only in this group, move them to root. (which is not great because it elevates them to root permissions…)
 
     # Delete children
     local children=($(jq -r --arg id "$group_id" '.data.groups[] | select(.id == $id) | .children[] | .id' $groups_file))

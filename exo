@@ -532,6 +532,9 @@ function exo_sync_up {
   local root_dir=${1:?Need root directory}
   local root_id=${2:-$(exo_group_root)}
 
+  # get all unclaimed devices to use later
+  local unclaimed=($(exo_device_unclaimed | jq -r '.data.unclaimedDevices.devices[] | .id'))
+
   function _sync_up_group {
     local group_dir=$1
     local parent_id=$2
@@ -544,7 +547,13 @@ function exo_sync_up {
     # If not, set group to the new group.
     local devices=($(jq -r '.[].id' $group_dir/devices.json))
     for id in $devices; do
-      echo exo_device_set_group $id $group_id
+      if [[ $unclaimed[(r)$id] ]]; then
+        echo "Device $id is unclaimed, setting group to $group_id"
+        exo_device_set_group $id $group_id
+      fi
+      # Because of this, the device might not be visible to assets in this group.
+      # If you `sync down` and then `sync up` in the same ExoSense to duplicate a sub-tree for example.
+      # To make that work, you need to move the devices to a common parent group.
     done
 
     # Sync users

@@ -234,17 +234,15 @@ function worldbuilder_build {
 
 function worldbuilder_host_expand {
   # This lets us use `<keyword>:` to expand a bunch of tedious stuff without having to build up massive config files.
+  # This returns a multi-line string with the host and the ssh config file.
   local host=${1:?Need a host}
   # ??? Maybe some day allow for a trailing `:\d+` to specify a port?
 
   # `lima:` is the only prefix we support right now.
-  # If prefixed with `lima:`, then set WORLDBUILD_HOST to lima- and WORLDBUILDER_SSH_CFG to the lima socket
   if [[ "$host" == "lima:"* ]]; then
-    typeset -g -x WORLDBUILDER_HOST="lima-${host#lima:}"
-    typeset -g -x WORLDBUILDER_SSH_CFG="${HOME}/.lima/${host#lima:}/ssh.config"
+    print "lima-${host#lima:}\n${HOME}/.lima/${host#lima:}/ssh.config"
   else
-    typeset -g -x WORLDBUILDER_HOST=$host
-    unset WORLDBUILDER_SSH_CFG
+    print "$host"
   fi
 }
 
@@ -259,24 +257,24 @@ function worldbuilder_inject {
   want_envs image "^.+$" type "^.+$"
 
   function upload_one {
-    worldbuilder_host_expand $WORLDBUILDER_HOST
     # TODO: Prefix all output from this function with the host
-
+    local cfg=(${(f)"$(worldbuilder_host_expand $WORLDBUILDER_HOST)"})
+    local host=${cfg[1]}
     local ssh_cfg=''
-    [[ -n ${WORLDBUILDER_SSH_CFG} ]] && ssh_cfg="-F ${WORLDBUILDER_SSH_CFG}"
+    [[ -n ${cfg[2]} ]] && ssh_cfg="-F ${cfg[2]}"
     if [[ "$type" == "docker" ]]; then
       set -e
-      ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
-      scp ${=ssh_cfg} ${imagesDir}/${${image/%:*}:t}.tar ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.tar
-      ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- docker load -i /tmp/images/${${image/%:*}:t}.tar
-      ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.tar
+      ssh ${=ssh_cfg} ${host} -- mkdir -p /tmp/images
+      scp ${=ssh_cfg} ${imagesDir}/${${image/%:*}:t}.tar ${host}:/tmp/images/${${image/%:*}:t}.tar
+      ssh ${=ssh_cfg} ${host} -- docker load -i /tmp/images/${${image/%:*}:t}.tar
+      ssh ${=ssh_cfg} ${host} -- rm /tmp/images/${${image/%:*}:t}.tar
     elif [[ "$type" == "build" ]]; then
       set -e
-      ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- mkdir -p /tmp/images
-      scp ${=ssh_cfg} ${imagesDir}/${${image/%:*}:t}.zip ${WORLDBUILDER_HOST}:/tmp/images/${${image/%:*}:t}.zip
-      ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- mkdir -p ${${dest:-/tmp/images/barf}:h}
-      ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- sudo unzip -q -o /tmp/images/${${image/%:*}:t}.zip -d ${dest:-/tmp/images/barf}
-      ssh ${=ssh_cfg} ${WORLDBUILDER_HOST} -- rm /tmp/images/${${image/%:*}:t}.zip
+      ssh ${=ssh_cfg} ${host} -- mkdir -p /tmp/images
+      scp ${=ssh_cfg} ${imagesDir}/${${image/%:*}:t}.zip ${host}:/tmp/images/${${image/%:*}:t}.zip
+      ssh ${=ssh_cfg} ${host} -- mkdir -p ${${dest:-/tmp/images/barf}:h}
+      ssh ${=ssh_cfg} ${host} -- sudo unzip -q -o /tmp/images/${${image/%:*}:t}.zip -d ${dest:-/tmp/images/barf}
+      ssh ${=ssh_cfg} ${host} -- rm /tmp/images/${${image/%:*}:t}.zip
     else
       echo "Unknown type: $type" >&2
       exit 1

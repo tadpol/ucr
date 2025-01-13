@@ -466,6 +466,21 @@ function jmq_work {
   jmq_move $key "In Progress"
 }
 
+function jmq_prc {
+  # prc [<key>] [<merge to branch>]
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  local into=${2:-stable}
+  local msg=$(jmq_pr $key || git log --oneline -1 --no-decorate)
+  
+  gh pr create \
+    -B $into \
+    -t "$msg" \
+    -b "" \
+    -a tadpol -d
+
+  [[ -n "$key" ]] && jmq_move $key Validate
+}
+
 function jmq_merge {
   # merge <ticket> [<branch>]
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}

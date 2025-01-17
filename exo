@@ -61,6 +61,9 @@ function exo_me {
   query me { currentUser { ...UserFragment } }' '{}' me
 }
 
+#############################################################################
+# Groups
+
 function exo_group_list {
   local filters=$(options_to_json \
     group_type_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" \
@@ -153,6 +156,9 @@ function exo_group_delete {
   local group_id=${1:?Need group id}
   exo_q 'mutation deleteGroup($id: ID!) { deleteGroup(id: $id) { id } }' "{\"id\":\"${group_id}\"}"
 }
+
+#############################################################################
+# Assets
 
 function exo_asset_list {
   # exo asset list [<options>] [<asset id> …]
@@ -269,6 +275,9 @@ function exo_asset_create {
 function exo_template_list {
   exo_q 'query { templates2 { id name currentVersion } }'
 }
+
+#############################################################################
+# Devices
 
 function exo_product_list {
   exo_q 'query { products { pid name isSimulator settings { fqdn } } }'
@@ -403,6 +412,182 @@ function exo_device_delete {
 
   exo_q 'mutation ($id: ID!) { deleteDevice(id: $id) { id } }' "{\"id\":\"$id\"}"
 }
+
+#############################################################################
+# Internal Insight Modules (IIM)
+
+function exo_iim_list {
+  # exo iim list [<options>]
+  local pagination=$(options_to_json limit::number "^[0-9]+$" offset::number "^[0-9]+$")
+  [[ -z "$pagination" ]] && exit 4
+  local vars=$(jq -n -c  \
+    --argjson pagination "$pagination" \
+    '{ pagination: $pagination }')
+
+  exo_q 'query iim($pagination: Pagination = null) {
+    internalInsightModules(pagination: $pagination) {id name description} }' "$vars"
+}
+
+function exo_iim_create {
+  # exo iim create <name> [<options>]
+  local name=${1:?Need IIM name}
+  local options=$(options_to_json \
+    description "^.+$" \
+  )
+  [[ -z "$options" ]] && exit 4
+  local vars=$(jq -n -c  \
+    --arg name "$name" \
+    --argjson opts "$options" \
+    '{iim: ($opts + { name: $name })}')
+
+  exo_q 'mutation createIIM($iim: InsightInput) { createInternalInsightModule(insight: $iim) { id } }' "$vars"
+}
+
+function exo_iim_create_from {
+  # exo iim create from <iim file>
+  local iim_file=${1:?Need IIM file}
+
+  # Get everything except functions from file, create IIM
+  local iim=$(yq -r '. | del(.functions) | del(.id)' $iim_file)
+
+  local res=$(exo_q 'mutation createIIM($iim: InsightInput) {
+    createInternalInsightModule(insight: $iim) { id } }' "{\"iim\":$iim}")
+  local iim_id=$(jq -r '.data.createInternalInsightModule.id' <<< $res)
+  if [[ -z "$iim_id" || "$iim_id" == "null" ]]; then
+    echo "Failed to create IIM" >&2
+    echo $res >&2
+    exit 1
+  fi
+
+  # Now create functions
+  local fun_cnt=$(yq -r '.functions | length' $iim_file)
+  for ((i=0; i < fun_cnt; i++)); do
+    local fun=$(yq -r -o=json $iim_file | jq --arg i $i '.functions[$i|tonumber]')
+    exo_iimf_create_from $iim_id =(<<<$fun)
+  done
+}
+
+function exo_iim_delete {
+  # exo iim delete <iim id>
+  local iim_id=${1:?Need IIM id}
+  exo_q 'mutation deleteIIM($id: ID!) { deleteInternalInsightModule(id: $id) }' "{\"id\":\"${iim_id}\"}"
+}
+
+function exo_iim_export {
+  # exo iim export <iim id>|--all [--builtins]
+  if [[ -n $ucr_opts[all] ]]; then
+    local iim_ids=($(exo_iim_list | jq -r '.data.internalInsightModules[].id'))
+    if [[ -z $iim_ids ]]; then
+      echo "No IIMs found" >&2
+      exit 1
+    fi
+    if [[ -z $ucr_opts[builtins] ]]; then
+      # remove the builtins
+      local builtins=(Flowing Transformer Windowed)
+      iim_ids=(${iim_ids:|builtins})
+    fi
+  else
+    local iim_ids=(${1:?Need IIM id})
+  fi
+
+  echo "Exporting IIMs: total ${#iim_ids}"
+  for iim in $iim_ids; do
+    local iim_file=${iim}.yaml
+    ucr_opts[includeTranslations]=true
+    echo "Exporting IIM to $iim_file"
+    exo_iimf_list $iim | yq -o=yaml -P '.data.internalInsightModule' > $iim_file
+  done
+}
+
+function exo_iimf_list {
+  # exo iimf list <iim id> [<options>]
+  local iim_id=${1:?Need IIM id}
+  local options=$(options_to_json \
+    includeTranslations::boolean "^(true|t|yes|y|ok|1|false|f|no|n|0)$"
+  )
+  [[ -z "$options" ]] && exit 4
+  local pagination=$(options_to_json limit::number "^[0-9]+$" offset::number "^[0-9]+$")
+  [[ -z "$pagination" ]] && exit 4
+  local vars=$(jq -n -c  \
+    --arg id "$iim_id" \
+    --argjson opts "$options" \
+    --argjson pagination "$pagination" \
+    '$opts + { id: $id, pagination: $pagination }')
+
+  exo_q 'query iimf($id: ID!,
+    $includeTranslations: Boolean = false,
+    $pagination: Pagination = null) {
+    internalInsightModule(id: $id, pagination: $pagination) {
+      id name description
+      translations @include(if: $includeTranslations) { lang name description }
+      functions {
+        id
+        name
+        description
+        translations @include(if: $includeTranslations) { lang name description }
+        type
+        dsl
+        action
+        inlets {
+          name
+          description
+          translations @include(if: $includeTranslations) { lang name description }
+          tag
+          units
+          types
+          primitive
+        }
+        outlets {
+          name
+          description
+          suggested_name
+          translations @include(if: $includeTranslations) { lang name description suggested_name }
+          units
+          types
+          primitive
+        }
+        constants {
+          name
+          description
+          translations @include(if: $includeTranslations) { lang description enumeration_presented }
+          enumeration
+          enumeration_presented
+          maximum
+          minimum
+          default
+          multiple
+          required
+        }
+      }
+    }
+  }' "$vars"
+}
+
+function exo_iimf_create_from {
+  # exo iimf create from <iim id> <function file> [<function id>]
+  local iim_id=${1:?Need IIM id}
+  local fun_file=${2:?Need function file}
+  local fid=${3:-$(printf "%06x" $(( RANDOM % 1000000 )))}
+
+  local vars=$(jq -n -c --arg id "$iim_id" --arg fid "$fid" --argjson fun "$(< $fun_file)" '{
+    iim_id: $id,
+    newFunction: ($fun | .id |= "c_iif_" + $fid)
+  }')
+
+  exo_q 'mutation createIIMF($iim_id: ID!, $newFunction: InternalInsightFunctionInput) {
+    createInternalInsightModuleFunction(insight_id: $iim_id, function: $newFunction) { id } }' "$vars"
+}
+
+function exo_iimf_delete {
+  # exo iimf delete <iim id> <function id>
+  local iimf_id=${1:?Need IIM id}
+  local fun_id=${2:?Need function id}
+  exo_q 'mutation deleteIIMF($id: ID!, $fid: ID!) { deleteInternalInsightModuleFunction(insight_id: $id, function_id: $fid) }' \
+    "{\"id\":\"${iimf_id}\",\"fid\":\"${fun_id}\"}"
+}
+
+#############################################################################
+# Syncing
 
 function exo_rmstar {
   # exo rmstar [--deleteDevices] <group id to delete>

@@ -233,10 +233,10 @@ function exo_asset_create {
   local cm=$(yq -o json '.template.channels | to_entries | [ .[] |{"from":.key, "to": .value.id } ]' $template)
   # The easiest mapping now is to just change the PID and DID
   # !!! This works, but I don't like it. As I work thru more complex mappings maybe a better solution will come to mind.
-  if [[ -z "$ucr_opts[pid]" ]]; then
+  if [[ -n "$ucr_opts[pid]" ]]; then
     cm=$(jq --arg pid "$ucr_opts[pid]" 'map(.to = (.to|split(".") | .[0] = $pid | join(".")) )' <<< $cm)
   fi
-  if [[ -z "$ucr_opts[did]" ]]; then
+  if [[ -n "$ucr_opts[did]" ]]; then
     cm=$(jq --arg did "$ucr_opts[did]" 'map(.to = (.to|split(".") | .[1] = $did | join(".")) )' <<< $cm)
   fi
 

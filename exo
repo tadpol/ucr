@@ -14,11 +14,7 @@ else
 	exit 1
 fi
 
-##############################################################################
-# Define the tasks for this tool
-
-function exo_q {
-  # FIXME: ugh, as written, you can't actually use this from the command line. Only works internally.
+function _exo_q {
   # XXX: The token regex here doesn't match all actual tokens
   # want_envs EXO_HOST "^[\.A-Za-z0-9-]+$" EXO_TOKEN "^[A-Za-z0-9+/]+={0,2}$"
   want_envs EXO_HOST "^[\.A-Za-z0-9-]+$" EXO_TOKEN "^.+$"
@@ -46,8 +42,11 @@ function exo_q {
     -d "$req"
 }
 
+##############################################################################
+# Define the tasks for this tool
+
 function exo_me {
-  exo_q 'fragment UserFragment on User {
+  _exo_q 'fragment UserFragment on User {
     id
     email
     createdAt
@@ -91,7 +90,7 @@ function exo_group_list {
     --argjson pagination "$pagination" \
     '$opts + { filters: $filters, pagination: $pagination }')
 
-  exo_q 'query groups($filters: GroupFilters,
+  _exo_q 'query groups($filters: GroupFilters,
     $includeChildren: Boolean = false,
     $includeAssets: Boolean = false,
     $includeDevices: Boolean = false,
@@ -116,7 +115,7 @@ function exo_group_list {
 }
 
 function exo_group_root {
-  exo_q 'query { groups(filters: { text: "root" }) { id name } }' | \
+  _exo_q 'query { groups(filters: { text: "root" }) { id name } }' | \
   jq -r '.data.groups.[] | select(.name == "root") | .id'
 }
 
@@ -137,7 +136,7 @@ function exo_group_create {
     })
   }')
 
-  exo_q 'mutation createGroup($newGroup: CreateGroup) { createGroup(group: $newGroup) { id } }' "$vars"
+  _exo_q 'mutation createGroup($newGroup: CreateGroup) { createGroup(group: $newGroup) { id } }' "$vars"
 }
 
 function exo_group_create_from {
@@ -149,12 +148,12 @@ function exo_group_create_from {
     newGroup: (($group_info | del(.id) | del(.parent_id)) + { parent_node_id: $parent_id })
   }')
 
-  exo_q 'mutation createGroup($newGroup: CreateGroup) { createGroup(group: $newGroup) { id } }' "$vars"
+  _exo_q 'mutation createGroup($newGroup: CreateGroup) { createGroup(group: $newGroup) { id } }' "$vars"
 }
 
 function exo_group_delete {
   local group_id=${1:?Need group id}
-  exo_q 'mutation deleteGroup($id: ID!) { deleteGroup(id: $id) { id } }' "{\"id\":\"${group_id}\"}"
+  _exo_q 'mutation deleteGroup($id: ID!) { deleteGroup(id: $id) { id } }' "{\"id\":\"${group_id}\"}"
 }
 
 #############################################################################
@@ -189,7 +188,7 @@ function exo_asset_list {
     '$opts + { filters: ($filters | if has("level") then .level |= split(",") end ), pagination: $pagination } |
     if ($ARGS.positional|length > 0) then .ids |= $ARGS.positional end'  --args -- "${@}")
 
-  exo_q 'query list($filters: AssetFilters,
+  _exo_q 'query list($filters: AssetFilters,
     $includeTemplates: Boolean = false,
     $includeParent: Boolean = false,
     $includeMeta: Boolean = false,
@@ -208,13 +207,13 @@ function exo_asset_list {
 
 function exo_asset_export {
   local asset_id=${1:?Need asset id}
-  exo_q 'mutation CreateTemplateYAML($id: ID!) {  createTemplateYAML(id: $id) }' "{\"id\":\"${asset_id}\"}" | \
+  _exo_q 'mutation CreateTemplateYAML($id: ID!) {  createTemplateYAML(id: $id) }' "{\"id\":\"${asset_id}\"}" | \
     jq -r '.data.createTemplateYAML'
 }
 
 function exo_asset_delete {
   local asset_id=${1:?Need asset id}
-  exo_q 'mutation deleteAsset($id: ID!) { deleteAsset(id: $id) { id } }' "{\"id\":\"${asset_id}\"}"
+  _exo_q 'mutation deleteAsset($id: ID!) { deleteAsset(id: $id) { id } }' "{\"id\":\"${asset_id}\"}"
 }
 
 function exo_asset_create {
@@ -266,21 +265,21 @@ function exo_asset_create {
     "yaml": $template
   }')
 
-  exo_q \
+  _exo_q \
   'mutation createAssetFromT($yaml: String, $newAsset: Asset2Create, $groupId: ID!, $channelMapping: [ChannelMapping]) {
     createAssetFromT(yaml: $yaml, newAsset: $newAsset, group_id: $groupId, channelMapping: $channelMapping) { id }
   }' "$vars"
 }
 
 function exo_template_list {
-  exo_q 'query { templates2 { id name currentVersion } }'
+  _exo_q 'query { templates2 { id name currentVersion } }'
 }
 
 #############################################################################
 # Devices
 
 function exo_product_list {
-  exo_q 'query { products { pid name isSimulator settings { fqdn } } }'
+  _exo_q 'query { products { pid name isSimulator settings { fqdn } } }'
 }
 
 function exo_device_list {
@@ -308,7 +307,7 @@ function exo_device_list {
   [[ -z "$opts" ]] && exit 4
   local vars=$(jq -c --argjson filters "$filters" '{ filters: $filters } + .' <<< $opts)
 
-  exo_q 'query devices($filters: DeviceFilters,
+  _exo_q 'query devices($filters: DeviceFilters,
     $product: String,
     $includeTags: Boolean = false,
     $includeRes: Boolean = false) {
@@ -351,7 +350,7 @@ function exo_device_unclaimed {
 
   local vars=$(jq -n -c --argjson filter "$filters" '. + {"filter": $filter}' <<< $opts)
 
-  exo_q 'query GetUnclaimedDevices($filter: DeviceFilters, $limit: Int = 50, $offset: Int = 0, $product: String) {
+  _exo_q 'query GetUnclaimedDevices($filter: DeviceFilters, $limit: Int = 50, $offset: Int = 0, $product: String) {
     unclaimedDevices(product: $product, filters: $filter, pagination: { limit: $limit, offset: $offset }) {
       devices {
         id pid identity
@@ -374,7 +373,7 @@ function exo_device_set_group {
   local id=${pid}.${did}
   local group_id=${2:?Need group id}
 
-  exo_q 'mutation ($id: ID!, $group_id: ID!) {
+  _exo_q 'mutation ($id: ID!, $group_id: ID!) {
     updateDevice(id: $id, device: { group_id: $group_id }) { id }
   }' "{\"id\":\"$id\",\"group_id\":\"$group_id\"}"
 }
@@ -390,7 +389,7 @@ function exo_device_configIo {
   fi
   local id=${pid}.${did}
 
-  exo_q 'query configIo($id: ID!) { device(id: $id) { pid state { name setString reportedString } } }' "{\"id\":\"$id\"}" | \
+  _exo_q 'query configIo($id: ID!) { device(id: $id) { pid state { name setString reportedString } } }' "{\"id\":\"$id\"}" | \
     jq '.data.device.state[] | select(.name == "config_io") | (.setString // .reportedString) | fromjson'
 }
 
@@ -410,7 +409,7 @@ function exo_device_delete {
   fi
   local id=${pid}.${did}
 
-  exo_q 'mutation ($id: ID!) { deleteDevice(id: $id) { id } }' "{\"id\":\"$id\"}"
+  _exo_q 'mutation ($id: ID!) { deleteDevice(id: $id) { id } }' "{\"id\":\"$id\"}"
 }
 
 #############################################################################
@@ -424,7 +423,7 @@ function exo_iim_list {
     --argjson pagination "$pagination" \
     '{ pagination: $pagination }')
 
-  exo_q 'query iim($pagination: Pagination = null) {
+  _exo_q 'query iim($pagination: Pagination = null) {
     internalInsightModules(pagination: $pagination) {id name description} }' "$vars"
 }
 
@@ -440,7 +439,7 @@ function exo_iim_create {
     --argjson opts "$options" \
     '{iim: ($opts + { name: $name })}')
 
-  exo_q 'mutation createIIM($iim: InsightInput) { createInternalInsightModule(insight: $iim) { id } }' "$vars"
+  _exo_q 'mutation createIIM($iim: InsightInput) { createInternalInsightModule(insight: $iim) { id } }' "$vars"
 }
 
 function exo_iim_create_from {
@@ -450,7 +449,7 @@ function exo_iim_create_from {
   # Get everything except functions from file, create IIM
   local iim=$(yq -r '. | del(.functions) | del(.id)' $iim_file)
 
-  local res=$(exo_q 'mutation createIIM($iim: InsightInput) {
+  local res=$(_exo_q 'mutation createIIM($iim: InsightInput) {
     createInternalInsightModule(insight: $iim) { id } }' "{\"iim\":$iim}")
   local iim_id=$(jq -r '.data.createInternalInsightModule.id' <<< $res)
   if [[ -z "$iim_id" || "$iim_id" == "null" ]]; then
@@ -470,7 +469,7 @@ function exo_iim_create_from {
 function exo_iim_delete {
   # exo iim delete <iim id>
   local iim_id=${1:?Need IIM id}
-  exo_q 'mutation deleteIIM($id: ID!) { deleteInternalInsightModule(id: $id) }' "{\"id\":\"${iim_id}\"}"
+  _exo_q 'mutation deleteIIM($id: ID!) { deleteInternalInsightModule(id: $id) }' "{\"id\":\"${iim_id}\"}"
 }
 
 function exo_iim_export {
@@ -514,7 +513,7 @@ function exo_iimf_list {
     --argjson pagination "$pagination" \
     '$opts + { id: $id, pagination: $pagination }')
 
-  exo_q 'query iimf($id: ID!,
+  _exo_q 'query iimf($id: ID!,
     $includeTranslations: Boolean = false,
     $pagination: Pagination = null) {
     internalInsightModule(id: $id, pagination: $pagination) {
@@ -574,7 +573,7 @@ function exo_iimf_create_from {
     newFunction: ($fun | .id |= "c_iif_" + $fid)
   }')
 
-  exo_q 'mutation createIIMF($iim_id: ID!, $newFunction: InternalInsightFunctionInput) {
+  _exo_q 'mutation createIIMF($iim_id: ID!, $newFunction: InternalInsightFunctionInput) {
     createInternalInsightModuleFunction(insight_id: $iim_id, function: $newFunction) { id } }' "$vars"
 }
 
@@ -582,7 +581,7 @@ function exo_iimf_delete {
   # exo iimf delete <iim id> <function id>
   local iimf_id=${1:?Need IIM id}
   local fun_id=${2:?Need function id}
-  exo_q 'mutation deleteIIMF($id: ID!, $fid: ID!) { deleteInternalInsightModuleFunction(insight_id: $id, function_id: $fid) }' \
+  _exo_q 'mutation deleteIIMF($id: ID!, $fid: ID!) { deleteInternalInsightModuleFunction(insight_id: $id, function_id: $fid) }' \
     "{\"id\":\"${iimf_id}\",\"fid\":\"${fun_id}\"}"
 }
 

@@ -78,6 +78,12 @@ function task_runner {
       ucr_opts[sec]=${match[1]}
       local cfg=${ucr_opts[cfg]:-$config_location}
       load_from_ini "$cfg" "${ucr_opts[sec]}"
+    elif [[ "$arg" =~ "^--help$" ]]; then
+    	# Force calling the help function.
+      # For any task, the following two are equivalent:
+      # - prefix task --help
+      # - prefix help task
+      leftovers=(help "${leftovers[@]}")
     elif [[ "$arg" =~ "^--" ]]; then
       # long option
       local opt=${arg#--}
@@ -270,10 +276,21 @@ function ${(L)argv0}_function_not_found {
 }
 
 # List all of the tasks that have been defined
+function ${(L)argv0}_help_tasks {
+  echo "${(L)argv0} tasks"
+  echo "  List all of the tasks that have been defined."
+}
 function ${(L)argv0}_tasks {
   for fn in ${(@ok)functions[(I)${(L)argv0}_*]}; do
-    echo ${${fn#${(L)argv0}_}//_/ }
+    [[ $fn != *"_help_"* ]] && echo ${${fn#${(L)argv0}_}//_/ }
   done
+}
+
+function ${(L)argv0}_help_state {
+  echo "${(L)argv0} state"
+  echo "  Display the current state of the environment."
+  echo "  This includes all ENV variables, options, and arguments as they have been parsed and loaded"
+  echo "  from config files and command line"
 }
 function ${(L)argv0}_state {
   echo "ENV:"

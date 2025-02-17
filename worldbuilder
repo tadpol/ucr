@@ -324,4 +324,4 @@ function worldbuilder_all {
 
 ##############################################################################
 # Finally, run the task runner to find and run the task based on arguments
-task_runner "$*"
+task_runner "$@"

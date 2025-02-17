@@ -1,9 +1,6 @@
 #!/usr/bin/env zsh
 # set -e
 
-# would love for the core to be a separate file that you source in, then add your stuff.
-# But for now we'll just lump in one file.
-
 # compute this from script name
 # Plan is to enable having multiple versions of this with different names
 # argv0=${${0:t}:r}
@@ -70,7 +67,8 @@ function task_runner {
   local double_dash=false
 
   # First pass, look for long options, short options, and env pairs
-  for arg in ${(s: :)*}; do
+  for arg in "$@"; do
+    # echo ":check: $arg" >&2
     if [[ "$double_dash" = "true" ]]; then
       leftovers[${#leftovers}+1]=$arg
     elif [[ "$arg" =~ "^--$" ]]; then
@@ -130,8 +128,8 @@ function task_runner {
     ucr_cmdline=(${(L)argv0}_function_not_found ${remaining[@]})
   fi
 
-  # echo "do: $ucr_cmdline" >&2
-  ${=ucr_cmdline}
+  # echo ":do " ${ucr_cmdline[1]} "${ucr_cmdline[2,-1]}" "!" >&2
+  ${ucr_cmdline[1]} "${ucr_cmdline[2,-1]}"
 }
 
 # Checks that specified ENVs exist.

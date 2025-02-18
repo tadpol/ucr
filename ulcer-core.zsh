@@ -277,12 +277,20 @@ function ${(L)argv0}_function_not_found {
 
 # List all of the tasks that have been defined
 function ${(L)argv0}_help_tasks {
-  echo "${(L)argv0} tasks"
+  echo "${(L)argv0} tasks [--filter=regex] [<prefix…>]"
   echo "  List all of the tasks that have been defined."
+  echo "  Optionally filter by a regex or prefix."
 }
 function ${(L)argv0}_tasks {
+  setopt RE_MATCH_PCRE
+  local filter="^${(L)argv0}_(?!help_).*"
+  if [[ -n "$ucr_opts[filter]" ]]; then
+    filter="^${(L)argv0}_${ucr_opts[filter]}"
+  elif [[ $# -gt 0 ]]; then
+    filter="^${(L)argv0}_${@// /_}"
+  fi
   for fn in ${(@ok)functions[(I)${(L)argv0}_*]}; do
-    [[ $fn != *"_help_"* ]] && echo ${${fn#${(L)argv0}_}//_/ }
+    [[ $fn =~ "$filter" ]] && echo ${${fn#${(L)argv0}_}//_/ }
   done
 }
 

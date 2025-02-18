@@ -17,6 +17,14 @@ fi
 ##############################################################################
 # Define the tasks for this tool
 
+function jmq_help_q {
+  cat <<EOF
+jmq q <jql> [--fields=<fields>]
+  Query Jira with the given JQL.
+  If fields are given, then only those fields are returned. By default only key and summary are returned.
+  Use --fields=*all to get everything.
+EOF
+}
 function jmq_q {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   # --fields=*all to get everything
@@ -32,6 +40,13 @@ function jmq_q {
     -d "$req"
 }
 
+function jmq_help_pr {
+  cat <<EOF
+jmq pr [<ticket>]
+  Create a Pull Request title for the ticket. If no ticket is given, then the current branch is used.
+  The title is the summary of the ticket with the key in parentheses.
+EOF
+}
 function jmq_pr {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -51,6 +66,12 @@ function jmq_pr {
     -d "$req" | jq -r '.issues[] | .fields.summary + " (" + .key + ")"' 2>/dev/null
 }
 
+function jmq_help_branch {
+  cat <<EOF
+jmq branch
+  Get the ticket key from the current branch name.
+EOF
+}
 function jmq_branch {
   # Get the Key from the branch name
   local ref=${$(git symbolic-ref --short HEAD 2>/dev/null || echo ""):t}
@@ -60,6 +81,14 @@ function jmq_branch {
   fi
 }
 
+function jmq_help_next {
+  cat <<EOF
+jmq next [<ticket>] 
+  Move a ticket to the next state.
+  When there are multiple transitions, a menu is shown to select which to take.
+  If no ticket is given, then the current branch is used.
+EOF
+}
 function jmq_next {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -92,8 +121,12 @@ function jmq_next {
     -d "{\"transition\":{\"id\": ${transition_id} }}"
 }
 
-# Move tickets to named state
-# jmq move FOO-0000 In Progress
+function jmq_help_move {
+  cat <<EOF
+jmq move <ticket> <state>
+  Move a ticket to a named state.
+EOF
+}
 function jmq_move {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -124,6 +157,13 @@ function jmq_move {
     -d "{\"transition\":{\"id\": ${inp_id} }}"
 }
 
+function jmq_help_as_status {
+  cat <<EOF
+jmq as_status <status> [--all]
+  List the tickets assigned to you and in current projects that are in the given status.
+  If --all is given, then all projects are searched.
+EOF
+}
 function jmq_as_status {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local stat=${1:?Missing Issue Status}
@@ -147,14 +187,34 @@ function jmq_as_status {
     mlr --itsv --opprint --implicit-csv-header --headerless-csv-output cat
 }
 
+function jmq_help_todo {
+  cat <<EOF
+jmq todo [--all]
+  List the tickets assigned to you that are in the "On Deck" state.
+  If --all is given, then all projects are searched.
+EOF
+}
 function jmq_todo {
   jmq_as_status "On Deck"
 }
 
+function jmq_help_doing {
+  cat <<EOF
+jmq doing [--all]
+  List the tickets assigned to you that are in the "In Progress" state.
+  If --all is given, then all projects are searched.
+EOF
+}
 function jmq_doing {
   jmq_as_status "In Progress"
 }
 
+function jmq_help_info {
+  cat <<EOF
+jmq info [<ticket>]
+  Display the information for a ticket. If no ticket is given, then the current branch is used.
+EOF
+}
 function jmq_info {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -196,6 +256,13 @@ function jmq_info {
 Description: \(.fields.description)"'
 }
 
+function jmq_help_status {
+  cat <<EOF
+jmq status
+	Give the current status of tickets assigned to you.
+  Only lists the tickets in the "On Deck", "In Progress", and "Validation" states.
+EOF
+}
 function jmq_status {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local statuses=("On Deck" "In Progress" "Validation")
@@ -218,6 +285,12 @@ function jmq_status {
   join("\n\n")'
 }
 
+function jmq_help_open {
+  cat <<EOF
+jmq open [<ticket>]
+  Open the ticket in the browser. If no ticket is given, then the current branch is used.
+EOF
+}
 function jmq_open {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -229,6 +302,12 @@ function jmq_open {
   open https://${JMQ_HOST}/browse/${(U)key}
 }
 
+function jmq_help_mdl {
+  cat <<EOF
+jmq mdl [<ticket>]
+  Get the markdown link for a ticket. If no ticket is given, then the current branch is used.
+EOF
+}
 function jmq_mdl {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -241,7 +320,12 @@ function jmq_mdl {
 
 }
 
-# list files/attachments on a ticket
+function jmq_help_files {
+  cat <<EOF
+jmq files [<ticket>]
+  List the files/attachments for a ticket. If no ticket is given, then the current branch is used.
+EOF
+}
 function jmq_files {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -267,6 +351,13 @@ function jmq_files {
     mlr --itsv --implicit-csv-header --opprint label name,type,link
 }
 
+function jmq_help_attach {
+  cat <<EOF
+jmq attach <ticket> <files…>
+  Attach files to a ticket. If no ticket is given, then the current branch is used.
+  Directories are zipped before uploading.
+EOF
+}
 function jmq_attach {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -291,9 +382,14 @@ function jmq_attach {
       --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
       -F "file=@${f}"
   done
-
 }
 
+function jmq_help_labels {
+  cat <<EOF
+jmq labels [<tickets…>]
+  List the labels for one or more tickets. If no tickets are given, then the current branch is used.
+EOF
+}
 function jmq_labels {
   # lables <tickets…>
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
@@ -323,6 +419,12 @@ function jmq_labels {
     fi
 }
 
+function jmq_help_label_add {
+  cat <<EOF
+jmq label add <label> [<tickets…>] 
+  Add a label to one or more tickets. If no tickets are given, then the current branch is used.
+EOF
+}
 function jmq_label_add {
   # label add <label> <tickets…>
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
@@ -349,6 +451,12 @@ function jmq_label_add {
   done
 }
 
+function jmq_help_label_del {
+  cat <<EOF
+jmq label del <label> [<tickets…>] 
+  Remove a label from one or more tickets. If no tickets are given, then the current branch is used.
+EOF
+}
 function jmq_label_del {
   # label add <label> <tickets…>
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
@@ -375,6 +483,13 @@ function jmq_label_del {
   done
 }
 
+function jmq_help_links {
+  cat <<EOF
+jmq links [<tickets…>] [--dot]
+  List the links and types for one or more tickets. If no tickets are given, then the current branch is used.
+  If --dot is given, then output is in dot format for graphviz.
+EOF
+}
 function jmq_links {
   # links <tickets>
   # lists the links and types for one or more tickets
@@ -440,6 +555,13 @@ function jmq_links {
   fi
 }
 
+function jmq_help_work {
+  cat <<EOF
+ work <ticket> [<parent>]
+  Move a ticket to "In Progress" and create a branch for it.
+  If a parent is given, then create the branch there.
+EOF
+}
 function jmq_work {
   # work <ticket> [<parent>]
   local key=${1:?Missing Issue Key}
@@ -466,6 +588,13 @@ function jmq_work {
   jmq_move $key "In Progress"
 }
 
+function jmq_help_prc {
+  cat <<EOF
+jmq prc [<key>] [<merge to branch>]
+  Create a PR for the current branch into stable or the given branch.
+  If key is not given, derive it from the branch name, then move the ticket to "Validate".
+EOF
+}
 function jmq_prc {
   # prc [<key>] [<merge to branch>]
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -481,6 +610,13 @@ function jmq_prc {
   [[ -n "$key" ]] && jmq_move $key Validate
 }
 
+function jmq_help_merge {
+  cat <<EOF
+jmq merge [<key>] [<merge to branch>]
+  Merge the branch for key into stable or the given branch.
+  If key is not given, derive it from the current branch name.
+EOF
+}
 function jmq_merge {
   # merge <ticket> [<branch>]
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}

@@ -63,9 +63,9 @@ typeset -A ucr_opts
 # This is most of what ucr is.
 function task_runner {
   local leftovers=()
-  local ucr_cmdline=()
   local double_dash=false
 
+  # echo ": task_runner ${(j:^:)@}" >&2
   # First pass, look for long options, short options, and env pairs
   for arg in "$@"; do
     # echo ":check: $arg" >&2
@@ -117,6 +117,7 @@ function task_runner {
   # Second pass, look for functions
   local func_list=(${(ok)functions[(I)${(L)argv0}_*]})
   local remaining=()
+  local try_cmd
 
   # loop with args dropping off tail
   while (( ${#leftovers} > 0 ))
@@ -124,22 +125,22 @@ function task_runner {
     try_cmd=${(L)argv0}_${(j:_:)leftovers}
     found=${func_list[(Ie)$try_cmd]}
     if (( found != 0 )); then
-      ucr_cmdline=($try_cmd ${remaining[@]})
       break
     fi
     remaining=(${leftovers[-1]} ${remaining[@]})
     shift -p leftovers
   done
   if (( ${#leftovers} == 0 )); then
-    ucr_cmdline=(${(L)argv0}_function_not_found ${remaining[@]})
+    try_cmd=${(L)argv0}_function_not_found
   fi
 
-  # echo ":do " ${ucr_cmdline[1]} "${ucr_cmdline[2,-1]}" "!" >&2
-  ${ucr_cmdline[1]} "${ucr_cmdline[2,-1]}"
+  # echo ":do " $try_cmd "${(j:*:)remaining}" "!" >&2
+  $try_cmd "${remaining[@]}"
 }
 
 # Checks that specified ENVs exist.
 # Call with pairs of key names and regexp to validate
+# TODO: add a way to specify a default value
 function want_envs {
   typeset -A tests=($*)
   local key

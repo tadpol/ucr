@@ -17,7 +17,12 @@ fi
 ##############################################################################
 # Define the tasks for this tool
 
-# Get all of the sections from the worldbuilder file
+function worldbuilder_help_sections {
+  cat <<EOF
+worldbuilder sections
+  Lists all sections in the worldbuilder file.
+EOF
+}
 function worldbuilder_sections {
   want_envs WORLDBUILDER_FILE "^.+$"
 
@@ -28,7 +33,12 @@ function worldbuilder_sections {
   done < "$WORLDBUILDER_FILE"
 }
 
-# Fuzzy match a section from the worldbuilder file
+function worldbuilder_help_namer {
+  cat <<EOF
+worldbuilder namer [query]
+  Fuzzy match a section from the worldbuilder file.
+EOF
+}
 function worldbuilder_namer {
   worldbuilder_sections | fzf -1 --no-multi --query "${1:-m}"
 }
@@ -49,6 +59,7 @@ EOE
 
 # Creates a new worldbuilder file based on the current one, updating the commit hash for each section.
 # The new commits are pulled from a release tag on github.
+# FIXME: broken: review and maybe just drop. i don't use this at all
 function worldbuilder_pull_next_release {
   # Needs a tag/release; pulls the txt assets from github; lifts the commit hashes for each repo
   # and writes out an ini file based on the currently loaded one.
@@ -92,11 +103,15 @@ function worldbuilder_pull_next_release {
   rm -rf "$tmpDir"
 }
 
-# worldbuilder_clone <section>
-# if the dir doesn't exist or is empty, then clone the repo
+function worldbuilder_help_clone {
+  cat <<EOF
+worldbuilder clone <section>
+  Clones the repo for the section if it doesn't exist.
+EOF
+}
 function worldbuilder_clone {
   want_envs WORLDBUILDER_FILE "^.+$"
-  local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  local whom=$(worldbuilder_namer ${1:?Need section to work on})
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   want_envs dir "^.+$" repo "^.+$"
 
@@ -106,11 +121,17 @@ function worldbuilder_clone {
   fi
 }
 
-# worldbuilder_update <section>
-# if the dir exists, then git fetch all
+function worldbuilder_help_update {
+  cat <<EOF
+worldbuilder update <section>
+  Fetches the latest changes for the section.
+  This will stash and switch branches if the declared commit isn't the current one,
+  and return back to the original branch.
+EOF
+}
 function worldbuilder_update {
   want_envs WORLDBUILDER_FILE "^.+$"
-  local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  local whom=$(worldbuilder_namer ${1:?Need section to work on})
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   want_envs dir "^.+$" commit "^.*$"
 
@@ -139,9 +160,15 @@ function worldbuilder_update {
   )
 }
 
+function worldbuilder_help_where {
+  cat <<EOF
+worldbuilder where <section>
+  Prints the current branch for the section.
+EOF
+}
 function worldbuilder_where {
   want_envs WORLDBUILDER_FILE "^.+$"
-  local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  local whom=$(worldbuilder_namer ${1:?Need section to work on})
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   want_envs dir "^.+$"
   (
@@ -149,14 +176,75 @@ function worldbuilder_where {
     echo -n "$whom : "
     git symbolic-ref --quiet HEAD
   )
-
 }
 
+function worldbuilder_switch {
+  want_envs WORLDBUILDER_FILE "^.+$"
+  local whom=$(worldbuilder_namer ${1:?Need section to work on})
+  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  want_envs dir "^.+$" commit "^.*$"
+  [[ $# -gt 1 ]] && commit=${2:-$commit}
+  if [[ -z "$commit" ]]; then
+    echo "No commit to switch to" >&2
+    exit 1
+  fi
+  (
+    cd ${dir}
+    # echo -n "$whom : "
+    git switch $commit
+  )
+}
+
+function worldbuilder_help_audit {
+  cat <<EOF
+worldbuilder audit <section>
+  Runs the audit tool for the section.
+EOF
+}
+function worldbuilder_audit {
+  want_envs WORLDBUILDER_FILE "^.+$"
+  local whom=$(worldbuilder_namer ${1:?Need section to work on})
+  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  want_envs dir "^.+$" commit "^.*$"
+
+  (
+    cd ${dir}
+    if [[ -f "package.json" ]]; then
+      npm audit --json | jq -r --arg E $(printf "\033") '.metadata.vulnerabilities | [
+        if .total > 0 then "\($E)[0;31m\(.total) vulnerabilities \($E)[0m" else "\($E)[0;32m0 vulnerabilities\($E)[0m" end,
+        if .critical > 0 then "(\($E)[0;31m\(.critical)\($E)[0m critical)" else "" end,
+        if .high > 0 then "(\(.high) high)" else "" end,
+        if .moderate > 0 then "(\(.moderate) moderate)" else "" end,
+        if .low > 0 then "(\(.low) low)" else "" end
+      ] | join(" ")'
+    elif [[ -f "mix.exs" ]]; then
+      # mix deps.get >/dev/null
+      mix deps.audit
+      mix hex.audit
+    elif [[ -f "go.mod" ]]; then
+      govulncheck ./...
+    else
+      echo "No audit tool for this repo"
+    fi
+  )
+}
+
+function worldbuilder_help_build {
+  cat <<EOF
+worldbuilder build <section>
+  Builds an image from a section in the worldbuilder file.
+  This will stash and switch branches if the declared commit isn't the current one,
+  and return back to the original branch.
+
+  The resulting image/archive will be saved in a directory named
+  _images_<worldbuilder_file_name> in the current directory.
+EOF
+}
 # Builds an image from a section in the worldbuilder file.
 # Doing its best to be idempotent.
 function worldbuilder_build {
   want_envs WORLDBUILDER_FILE "^.+$"
-  local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  local whom=$(worldbuilder_namer ${1:?Need section to work on})
   local docker_tool=${WORLDBUILDER_DOCKER_TOOL:-nerdctl.lima}
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   [[ ! -v "type" ]] && typeset -g -x type=docker
@@ -232,6 +320,17 @@ function worldbuilder_build {
   )
 }
 
+function worldbuilder_help_host_expand {
+  cat <<EOF
+worldbuilder host expand <host>
+  Expands a host string into a host and ssh config file.
+
+  This is used for specifying a host in a worldbuilder file and then
+  expanding it into a host and ssh config file for use in other commands.
+
+  Currently only supports 'lima:<name>'.
+EOF
+}
 function worldbuilder_host_expand {
   # This lets us use `<keyword>:` to expand a bunch of tedious stuff without having to build up massive config files.
   # This returns a multi-line string with the host and the ssh config file.
@@ -246,9 +345,19 @@ function worldbuilder_host_expand {
   fi
 }
 
+function worldbuilder_help_inject {
+  cat <<EOF
+worldbuilder inject <section>
+  Injects the image from a section in the worldbuilder file into a host.
+
+  The hosts are specified in the WORLDBUILDER_HOST environment variable.
+  This is a space separated list of host strings that is expanded with
+  the 'worldbuilder host expand' command.
+EOF
+}
 function worldbuilder_inject {
   want_envs WORLDBUILDER_HOST "^[-@._A-Za-z0-9:]+$"
-  local whom=$(worldbuilder_namer ${1:?Need something to fetch})
+  local whom=$(worldbuilder_namer ${1:?Need section to work on})
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   if [[ ! -v "type" ]]; then
@@ -286,14 +395,26 @@ function worldbuilder_inject {
   zargs -P 5 -l 1 -- ${=WORLDBUILD_HOST} -- upload_one
 }
 
+function worldbuilder_help_foreach {
+  cat <<EOF
+worldbuilder foreach <internal task name> [--time] [--verbose]
+  Runs a task for each section in the worldbuilder file.
+
+  WORLDBUILDER_SKIPLIST can be set to a comma separated list of sections to skip.
+EOF
+}
 function worldbuilder_foreach {
   local start=$(date +%s)
   local cmd=${1:?Need a command to run}
+  local skiplist=(${(z)${(s:,:)${WORLDBUILDER_SKIPLIST}}})
   if [[ -n "${ucr_opts[time]}" ]]; then
     date +%Y-%m-%dT%H:%M:%S%z
   fi
 
   for sec in $(worldbuilder_sections); do
+    if [[ " ${skiplist[@]} " =~ " ${sec} " ]]; then
+      continue
+    fi
     if [[ -n "${ucr_opts[verbose]}" ]];then
       local msg=" Running: $cmd '$sec' "
       print -r - ${(l[COLUMNS/2][=]r[COLUMNS-COLUMNS/2][=])msg}
@@ -312,9 +433,18 @@ function worldbuilder_foreach {
   fi
 }
 
+function worldbuilder_help_all {
+  cat <<EOF
+worldbuilder all <task> [--time] [--verbose]
+  Runs a task for each section in the worldbuilder file.
+  Tasks are: audit, build, clone, inject, update, where
+
+  WORLDBUILDER_SKIPLIST can be set to a comma separated list of sections to skip.
+EOF
+}
 function worldbuilder_all {
   local action=${1:-build}
-  local allowed=(build clone inject update where)
+  local allowed=(audit build clone inject update where)
   if [[ ! " ${allowed[@]} " =~ " ${action} " ]]; then
     echo "Unknown action: $action" >&2
     exit 1

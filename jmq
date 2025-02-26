@@ -574,7 +574,7 @@ function jmq_work {
   local branchname="${JMQ_BRANCH_PREFIX}${key:l}"
 
   # if the branch already exists, then just check it out.
-  if [[ -n $(git branch --format '%(refname:short)' --list "*${key}") ]]; then
+  if [[ -n $(git branch --format '%(refname:short)' -i --list "*${key}") ]]; then
     git checkout $branchname
   else
     # if a parent is given, then create branch there

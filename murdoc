@@ -102,6 +102,14 @@ function murdoc_inspect_on {
     eval $cmd
   else
     ssh $node $cmd
+    # When exit code is 255, that is from ssh itself (other values are from the called cmd.)
+    # _Most_ of the time, this is from the EC2 being cycled and reusing an IP, and now it doesn't match.
+    # So on 255, rekey then retry. If it fails again, then stop.
+    if [[ "$?" = "255" ]]; then
+      echo "Rekeying and retrying…" >&2
+      murdoc_rekey >&2
+      ssh $node $cmd
+    fi
   fi
 }
 

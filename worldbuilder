@@ -178,6 +178,12 @@ function worldbuilder_where {
   )
 }
 
+function worldbuilder_help_switch {
+  cat <<EOF
+worldbuilder switch <section> [commit]
+  Switches to a commit or branch for a section.
+EOF
+}
 function worldbuilder_switch {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})

@@ -369,6 +369,93 @@ function ucr_logs {
     -H "Authorization: token $UCR_TOKEN"
 }
 
+#########################################################################
+
+function ucr_sc {
+  # ucr sc <service> [--listops] [--no-cache] <operation> [options]
+  want_envs UCR_HOST "^[\.A-Za-z0-9:-]+$" UCR_SID "^[a-zA-Z0-9]+$"
+  get_token
+
+  local service=${1:?Need service name}
+
+  # Check cache for service operations, if missing or older than a week, fetch new.
+  # If --no-cache, always fetch new.
+  local cache_file="${XDG_CACHE_HOME:-$HOME/.cache}/ucr/${service}-operations.json"
+  mkdir -p ${cache_file:h}
+  # If it doesn't exist, cache is false
+  [[ -f $cache_file ]] || ucr_opts[cache]=false
+  # If it exists, then check the age (this will set ucr_opts[cache] to false if too old)
+  [[ -f $cache_file && -z "${cache_file}(N,md-7)" ]] && ucr_opts[cache]=false
+  if [[ ${ucr_opts[cache]} == "false" ]]; then
+  	# bizapi requires the SID, even though it is not used by pegapi for this call
+    v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/service/${(L)service} \
+      -H "Authorization: token $UCR_TOKEN" \
+      | jq .operations > $cache_file
+  fi
+
+  # --listops will just list the operations for the service
+  if [[ -n "$ucr_opts[listops]" ]]; then
+    jq -r 'keys[]' $cache_file
+    return
+  fi
+
+  local operation=${2:?Need operation name}
+  shift 2
+  # Get the operation details
+  local operation_details=$(jq --arg op "$operation" '.[$op]' $cache_file)
+  if [[ -z "$operation_details" || "$operation_details" == "null" ]]; then
+    echo "Operation `$operation` not found for service $service" >&2
+    exit 3
+  fi
+
+	# Want to map some parameters to options, and some to keys, and some to positional
+  # For now, all are options. (not sure of a good generic way to decide which should be positional)
+  # Only doing minimal validation here, since pegapi will do full.
+  # Now, while this is very OpenAPI like, pegasus calling squashes all the parameters into a single object.
+  # So we only need to look at the first item in parameters. It will be an object, whose keys are the parameters.
+  local opt_req='{}'
+  if [[ $(jq '.parameters|length' <<< $operation_details) > 0 ]]; then
+    local param_patterns=($(jq -r '.parameters[0].properties | to_entries[] |
+    	.value.type |= if (.|type) == "array" then
+        .[0]
+      elif . == "array" then
+        "string"
+      else
+        .
+      end |
+      .rex = if (.value|has("pattern")) then
+        .value.pattern
+      elif (.value | has("enum")) then
+        "^(" + (.value.enum|join("|")) + ")$"
+      elif .value.type == "string" then
+        "^.*$"
+      elif .value.type == "integer" then
+        "^[0-9]+$"
+      elif .value.type == "number" then
+        "^[0-9]+(\\.[0-9]+)?$"
+      elif .value.type == "boolean" then
+        "^(true|1|yes|ok|y|t|false|no|n|f)$"
+      else
+        "^.*$"
+      end |
+      "\(.key)::\(.value.type)", "\(.rex)"' <<< $operation_details))
+    # echo "= = $param_patterns" >&2
+    [[ -n "$param_patterns" ]] && opt_req=$( options_to_json "${(@)param_patterns}")
+    [[ -z "$opt_req" ]] && exit 4
+  fi
+
+  local service_uuid=$(ucr_service_uuid $service | jq -r .id)
+
+  v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/${operation} \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN" \
+    -d "$opt_req"
+}
+
+
+#########################################################################
+# Below are Service specific abstractions
+
 function ucr_tsdb_query {
   # metric names are just args, tags are <tag name>@<tag value>
   # others are all --options=value

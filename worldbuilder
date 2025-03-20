@@ -237,13 +237,17 @@ function worldbuilder_audit {
 
 function worldbuilder_help_build {
   cat <<EOF
-worldbuilder build <section>
+worldbuilder build <section> [--commit <commit>] [--head]
   Builds an image from a section in the worldbuilder file.
   This will stash and switch branches if the declared commit isn't the current one,
   and return back to the original branch.
 
   The resulting image/archive will be saved in a directory named
   _images_<worldbuilder_file_name> in the current directory.
+
+  The --head option will build the current HEAD of the repo.
+
+  The --commit option will build the specified commit or branch.
 EOF
 }
 # Builds an image from a section in the worldbuilder file.
@@ -260,6 +264,9 @@ function worldbuilder_build {
 
   local base=$PWD
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
+
+  [[ ${ucr_opts[head]} == "true" ]] && commit=""
+  [[ -n ${ucr_opts[commit]} ]] && commit=${ucr_opts[commit]}
 
   (
     # set -x

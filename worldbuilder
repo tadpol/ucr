@@ -283,6 +283,11 @@ function worldbuilder_build {
       git checkout "${commit}"
     fi
 
+    if [[ -n "$build_pre_cmd" ]]; then
+      echo "Running pre-build command: ${build_pre_cmd}" >&2
+      ${=build_pre_cmd}
+    fi
+
 		if [[ "$type" == "docker" ]]; then
       # Someday, rewrite _all_ the dockerfiles to use --ssh
       if grep -s murano-service-ssh-key Dockerfile >/dev/null; then
@@ -326,6 +331,11 @@ function worldbuilder_build {
     else
       echo "Unknown type: $type" >&2
       exit 1
+    fi
+
+    if [[ -n "$build_post_cmd" ]]; then
+      echo "Running post-build command: ${build_post_cmd}" >&2
+      ${=build_post_cmd}
     fi
 
     [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"

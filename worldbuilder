@@ -293,16 +293,18 @@ function worldbuilder_build {
         cp ~/.ssh/murano_builder murano-service-ssh-key
       fi
 
-    $docker_tool build \
-      --label com.exosite.build.git_commit="$(git rev-parse HEAD)" \
-      --tag "${image}" \
-      --platform="${platform}" \
-      .
+      $docker_tool build \
+        --label com.exosite.build.git_commit="$(git rev-parse HEAD)" \
+        --tag "${image}" \
+        --platform="${platform}" \
+        .
+      local exit_code=$?
 
       test -e murano-service-ssh-key && rm murano-service-ssh-key
 
-      # save image
-      $docker_tool save "${image}" > ${base}/${imagesDir}/${${image/%:*}:t}.tar
+      if [[ $exit_code = 0 ]]; then
+        $docker_tool save "${image}" > ${base}/${imagesDir}/${${image/%:*}:t}.tar
+      fi
 
     elif [[ "$type" == "build" ]]; then
       # default to zipping the entire directory

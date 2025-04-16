@@ -210,27 +210,26 @@ EOF
 function worldbuilder_audit {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
+  shift
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
-  want_envs dir "^.+$" commit "^.*$"
+  want_envs dir "^.+$" image "^.+$" commit "^.*$" repo "^.+$"
+
+  local base=$PWD
+  local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
+
+  local extra_args=()
+  [[ -f "$HOME/.config/trivy/trivy.yaml" ]] && extra_args+=(--config "$HOME/.config/trivy/trivy.yaml")
+  [[ -z "${ucr_opts[verbose]}" ]] && extra_args+=(--quiet --table-mode detailed)
+  extra_args+=("$@")
 
   (
     cd ${dir}
-    if [[ -f "package.json" ]]; then
-      npm audit --json | jq -r --arg E $(printf "\033") '.metadata.vulnerabilities | [
-        if .total > 0 then "\($E)[0;31m\(.total) vulnerabilities \($E)[0m" else "\($E)[0;32m0 vulnerabilities\($E)[0m" end,
-        if .critical > 0 then "(\($E)[0;31m\(.critical)\($E)[0m critical)" else "" end,
-        if .high > 0 then "(\(.high) high)" else "" end,
-        if .moderate > 0 then "(\(.moderate) moderate)" else "" end,
-        if .low > 0 then "(\(.low) low)" else "" end
-      ] | join(" ")'
-    elif [[ -f "mix.exs" ]]; then
-      # mix deps.get >/dev/null
-      mix deps.audit
-      mix hex.audit
-    elif [[ -f "go.mod" ]]; then
-      govulncheck ./...
+
+    if [[ -n "$ucr_opts[image]" ]]; then
+      trivy image --input ${base}/${imagesDir}/${${image/%:*}:t}.tar  "${extra_args[@]}"
     else
-      echo "No audit tool for this repo"
+      set -x
+      trivy repo . "${extra_args[@]}"
     fi
   )
 }

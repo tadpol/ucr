@@ -444,6 +444,12 @@ function ucr_sc {
     [[ -z "$opt_req" ]] && exit 4
   fi
 
+  # --listparams will just list the paramaters for the operation
+  if [[ -n "$ucr_opts[listparams]" ]]; then
+  	jq -r '.parameters[0].properties | keys[]' <<< $operation_details
+    return
+  fi
+
   local service_uuid=$(ucr_service_uuid $service | jq -r .id)
 
   v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/${operation} \
@@ -980,13 +986,31 @@ function ucr_device_write {
   local details=$(ucr_service_details device2)
   local d_host=$(jq -r .parameters.fqdn <<< $details)
   local vm=$(jq -r .solution_id <<< $details)
+  local cik=$UCR_CIK
+  # if UCR_CIK_<did> is set, use that instead
+  local cik_var="UCR_CIK_${did}"
+  if [[ -n "${(P)${cik_var}}" ]]; then
+    cik=${(P)${cik_var}}
+  fi
 
   # server actually only supports a subset of form-urlencoded, so manually pack it
   val=$(jq -r '@uri' <<< $val)
   v_curl -s https://${d_host}/onep:v1/stack/alias \
     -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
-    -H "X-Exosite-CIK: ${UCR_CIK}" \
+    -H "X-Exosite-CIK: ${cik}" \
     -d "${res}=${val}"
+}
+
+function ucr_device_exo_write {
+  # ExoSense wraps channels into a data_in resource
+  # ucr device exo write <did> <channel> <value> [<channel> <value> ...]
+  local did=${1:?Need device id}
+  [[ $# -lt 3 ]] && echo "Need at least 3 arguments" >&2 && exit 2
+  shift
+  # take args and turn into a JSON object
+  local req=$(jq -n -c '. + ([$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
+
+  ucr_device_write "$did" data_in "$req"
 }
 
 function ucr_device_activate {

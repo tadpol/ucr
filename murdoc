@@ -37,6 +37,19 @@ function murdoc_ips {
   fi
 }
 
+function murdoc_curlto {
+  want_envs MURDOC_IPS_URL ".+"
+  # curlto service /path/to/thing
+  local service=$(murdoc_namer ${1:?Missing Container Name})
+  local url_path=${2:?Missing Path}
+  shift 2
+
+  # convert IPS URL to use the domain
+  local url=${${MURDOC_IPS_URL/kubernetes-mock/${${service#mur_}//_/-}}%%/api/v1/endpoints}$url_path
+
+  v_curl -s "$url" "$@"
+}
+
 function murdoc_rekey {
   # refresh/replace the ssh known_hosts entries for the swarm
   ucr_opts[all]=1

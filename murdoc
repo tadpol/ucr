@@ -194,55 +194,13 @@ function murdoc_mongo {
     url=$(fzf --select-1 --no-multi --nth=2 --with-nth=1 --height 30% <<< $from | awk '{print $2}' )
   fi
 
-  # If using a jump host was requested, then change host to localhost and use ssh to tunnel.
-  # Extract host and port from the URL and then rewrite the url to use localhost
-  #
-  # !!! The traditional way of doing a jump host doesn't work with mongodb+srv 
-  # Need something like a proxy running on the jump host or VPN or …
-  if [[ -n "${ucr_opts[jump]}" ]]; then
-    local node=$(murdoc_ips)
-    RE_MATCH_PCRE=1
-    if [[ "${url}" =~ "^([^:]+)://(([^:]*):([^@]+)@)?([^:/]+):?([0-9]+)?(/(.+))?$" ]]; then
-      # if this is a 'mongodb+srv' then we have some DNS queries to do first…
-      #
-      # First get the actual hosts and ports from the DNS SRV records
-      if [[ "${match[1]}" = "mongodb+srv" ]]; then
-        local srv_hosts=($(dig +short SRV _mongodb._tcp.${match[5]} | awk '{print $4}'))
-        local srv_ports=($(dig +short SRV _mongodb._tcp.${match[5]} | awk '{print $3}'))
-        local srv_opts=$(dig +short TXT ${match[5]} | sed -e 's/"//g' -e 's/;/ /g')
-        # Now, if there are multiple hosts, then pick one randomly.
-        if [[ ${#srv_hosts} -gt 1 ]]; then
-          local idx=$((RANDOM % ${#srv_hosts}))
-          typeset -g -x match[5]=${srv_hosts[$idx]}
-          typeset -g -x match[6]=${srv_ports[$idx]}
-        fi
-        # Merge options if needed
-        if [[ -n "${srv_opts}" ]]; then
-          typeset -g -x match[8]="${match[8]}&${srv_opts}&tls=true&tlsAllowInvalidHostnames=true"
-        fi
-        typeset -g -x match[1]="mongodb"
-      fi
-
-			# Rebuild the url with the new host and port and options
-      url="${match[1]}://${match[2]}localhost:${match[6]:-27017}/${match[8]:-console}"
-      # Start the jumper
-      ssh -NT -L ${match[6]:-27017}:${match[5]}:${match[6]:-27017} ${node} &
-      typeset -g -x jump_pid=$!
-      sleep 3
-    fi
-  fi
+  # Because mongo does magic with URLs, we cannot jump or hop
 
   # check for 'mongo' or 'mongosh' and use that.
   if command -v mongosh >/dev/null 2>&1; then
     mongosh --verbose "${url}"
   else
     mongo "${url}"
-  fi
-
-  # If there was a jump host used, then close the tunnel.
-  if [[ -n "${jump_pid}" ]]; then
-    kill ${jump_pid}
-    unset jump_pid
   fi
 }
 
@@ -273,22 +231,16 @@ function murdoc_psql {
     fi
   fi
 
-  # If using a jump host was requested, then change host to localhost and use ssh to tunnel.
-  if [[ -n "${ucr_opts[jump]}" ]]; then
-    local node=$(murdoc_ips)
-    ssh -NT -L ${PGPORT:-5432}:${PGHOST}:${PGPORT:-5432} ${node} &
-    typeset -g -x jump_pid=$!
-    typeset -g -x PGHOST='localhost'
-    sleep 3
-  fi
+  local info=$(murdoc_jump_hop_on $PGHOST ${PGPORT:-5432})
+  # info is in the form of <local_host>:<local_port>,<jump_host>:<jump_pid>
+  typeset -g -x PGHOST=${${info%%,*}%:*}
+  typeset -g -x PGPORT=${${info%%,*}#*:}
+  local jump_host=${${info#*,}%:*}
+  local jump_pid=${${info#*,}#*:}
 
   ${cmd} "$@"
 
-  # If there was a jump host used, then close the tunnel.
-  if [[ -n "${jump_pid}" ]]; then
-    kill ${jump_pid}
-    unset jump_pid
-  fi
+  murdoc_jump_hop_off ${jump_host} ${jump_pid}
 }
 
 # Get envs for service, reshape into envs for redis, load them and call redis-cli.
@@ -332,14 +284,12 @@ function murdoc_redis {
     fi
   fi
 
-  # If using a jump host was requested, then change host to localhost and use ssh to tunnel.
-  if [[ -n "${ucr_opts[jump]}" ]]; then
-    local node=$(murdoc_ips)
-    ssh -NT -L ${redis_keys[PORT]}:${redis_keys[HOST]}:${redis_keys[PORT]} ${node} &
-    typeset -g -x jump_pid=$!
-    redis_keys[HOST]='localhost'
-    sleep 3
-  fi
+  local info=$(murdoc_jump_hop_on ${redis_keys[HOST]} ${redis_keys[PORT]})
+  # info is in the form of <local_host>:<local_port>,<jump_host>:<jump_pid>
+  redis_keys[HOST]=${${info%%,*}%:*}
+  redis_keys[PORT]=${${info%%,*}#*:}
+  local jump_host=${${info#*,}%:*}
+  local jump_pid=${${info#*,}#*:}
 
   if [[ -n "${redis_keys[PASSWORD]}" ]]; then
     typeset -g -x REDISCLI_AUTH=${redis_keys[PASSWORD]}
@@ -348,10 +298,88 @@ function murdoc_redis {
 
   redis-cli -h ${redis_keys[HOST]} -p ${redis_keys[PORT]} -n ${redis_keys[DB]} ${redis_keys[TLS]} "$@"
 
-  # If there was a jump host used, then close the tunnel.
-  if [[ -n "${jump_pid}" ]]; then
+  murdoc_jump_hop_off ${jump_host} ${jump_pid}
+}
+
+function murdoc_jump_hop_on {
+  # murdoc jump hop on <target host> <target port> 
+  local target_host=${1:?Missing Target Host}
+  local target_port=${2:?Missing Target Port}
+
+  # if not jump or hop, then return the target host:port
+  if [[ -z "${ucr_opts[jump]}" && -z "${ucr_opts[hop]}" ]]; then
+    print "${target_host}:${target_port}"
+    return 0
+  fi
+
+  # TODO: check if target_port is used, if so, pick a different one for the local port
+  # For now, just use the target port
+  local local_port=$target_port
+  local local_host=localhost
+
+  # If jumping, we need to create a ssh tunnel to the jump host
+  # If hopping, we need to create a docker container that listens on the host and forwards to the target.
+  # If both, then the hop setup commands need to be run on the jump host.
+  # If both, then the ssh tunnel needs to connect to the hopper container. so container needs to be created first.
+  # When hopping, we assume that the target host is a docker container and we need to get the IP address of the container.
+
+  [[ -n "${ucr_opts[jump]}" ]] && local jump_host=$(murdoc_ips)
+
+  if [[ -n "${ucr_opts[hop]}" ]]; then
+    local docker_cmd=(docker)
+    if [[ -n "${ucr_opts[sudo]}" || -n "$MURDOC_OPTS_SUDO" ]]; then
+      docker_cmd=(sudo docker)
+    fi
+    if [[ -n "${ucr_opts[jump]}" ]]; then
+      docker_cmd=(ssh "${MURDOC_SSH_OPTS}" $jump_host $docker_cmd)
+    fi
+    local target_ip=$(${=docker_cmd} inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $target_host)
+    local network=$(${=docker_cmd} container inspect -f '{{range $net,$v := .NetworkSettings.Networks}}{{printf "%s" $net}}{{end}}' $target_host)
+    ${docker_cmd} run -d \
+      --publish ${local_port}:${target_port} \
+      --network ${network} \
+      --name hopper-murdoc alpine \
+      /usr/bin/nc -l -p $target_port -e /usr/bin/nc $target_ip $target_port > /dev/null
+  fi
+
+  if [[ -n "${ucr_opts[jump]}" ]]; then
+  	# if also hopping, then point the tunnel to the hopper container
+    if [[ -n "${ucr_opts[hop]}" ]]; then
+      # ??? is localhost here correct? or should it be jump_host?
+      local target_host=localhost
+      local target_port=${local_port}
+    fi
+    # Create the ssh tunnel to the jump host
+    ssh -NT -L ${local_port}:${target_host}:${target_port} "${=MURDOC_SSH_OPTS}" ${jump_host} &
+
+    typeset -g -x jump_pid=$!
+    typeset -g -x jump_host=${jump_host}
+    sleep 1
+  fi
+
+  print "${local_host}:${local_port},${jump_host}:${jump_pid}"
+}
+
+function murdoc_jump_hop_off {
+  # murdoc jump hop off [<jump host> <jump pid>]
+  local jump_host=${1}
+  local jump_pid=${2}
+
+  # murdoc jump hop off
+  # Stop the ssh tunnel and remove the hopper container
+  if [[ -n "${ucr_opts[jump]}" ]]; then
     kill ${jump_pid}
-    unset jump_pid
+  fi
+
+  if [[ -n "${ucr_opts[hop]}" ]]; then
+    local docker_cmd=(docker)
+    if [[ -n "${ucr_opts[sudo]}" || -n "$MURDOC_OPTS_SUDO" ]]; then
+      docker_cmd=(sudo docker)
+    fi
+    if [[ -n "${ucr_opts[jump]}" ]]; then
+      docker_cmd=(ssh "${MURDOC_SSH_OPTS}" $jump_host $docker_cmd)
+    fi
+    ${=docker_cmd} container rm -f hopper-murdoc > /dev/null
   fi
 }
 

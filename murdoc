@@ -136,9 +136,21 @@ function murdoc_inspect {
 
 function murdoc_status {
   filter='sort_by(.Name)|.[]|[.Name, .State.Status, .State.Health.Status]|@csv'
-  murdoc_inspect | jq -r "${filter}" | \
-    mlr --icsv --opprint --implicit-csv-header --barred --right label container,status,health \
-    then sort -f container
+  if [[ -n "${ucr_opts[long]}" || -n "${ucr_opts[l]}" ]]; then
+    murdoc_inspect | jq -r "${filter}" | \
+      mlr --icsv --opprint --implicit-csv-header --barred --right label container,status,health \
+      then sort -f container
+
+  else
+
+    local statuses=$(murdoc_inspect | jq -r "${filter}" | mlr --icsv --ocsv label container,status,health)
+    local counts=$(mlr --icsv --ocsv count -g health <<< "$statuses")
+    # count number of each `health`; then display counts and for unhealthy, list containers
+    mlr --icsv --opprint --barred --right reshape -s health,count then rename ',no status'<<< "$counts" 
+
+    mlr --icsv --opprint --barred --right filter '$health == "unhealthy"' <<< "$statuses" 
+
+  fi
 }
 
 function murdoc_names {

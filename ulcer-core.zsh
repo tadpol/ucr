@@ -5,6 +5,8 @@
 # Plan is to enable having multiple versions of this with different names
 # argv0=${${0:t}:r}
 
+# Need the fancier regex matching
+setopt REMATCH_PCRE
 
 # This loads only the key=values and does not execute any code that might be included.
 # This is for files that are like .env
@@ -267,7 +269,7 @@ function v_curl {
 
 ##############################################################################
 # Below is the functions defined as tasks callable from cmdline args
-# The first set a for every tool, so they are all prefixed with `${(L)argv0}_`
+# The first set for every tool, so they are all prefixed with `${(L)argv0}_`
 
 # This is called if a function based on the passed args couldn't be found.
 function ${(L)argv0}_function_not_found {
@@ -283,7 +285,6 @@ function ${(L)argv0}_help_tasks {
   echo "  Optionally filter by a regex or prefix."
 }
 function ${(L)argv0}_tasks {
-  setopt RE_MATCH_PCRE
   local filter="^${(L)argv0}_(?!help_).*"
   if [[ -n "$ucr_opts[filter]" ]]; then
     filter="^${(L)argv0}_${ucr_opts[filter]}"

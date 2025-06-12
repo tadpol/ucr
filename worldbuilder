@@ -270,6 +270,7 @@ function worldbuilder_build {
   (
     # set -x
     cd ${dir}
+    typeset -g -x build_target=${base}/${imagesDir}/${${image/%:*}:t}.zip
 
     ## BUILD
     local remember=""
@@ -405,7 +406,7 @@ function worldbuilder_inject {
       set -e
       ssh ${=ssh_cfg} ${host} -- mkdir -p /tmp/images
       scp ${=ssh_cfg} ${imagesDir}/${${image/%:*}:t}.zip ${host}:/tmp/images/${${image/%:*}:t}.zip
-      ssh ${=ssh_cfg} ${host} -- mkdir -p ${${dest:-/tmp/images/barf}:h}
+      ssh ${=ssh_cfg} ${host} -- sudo mkdir -p ${${dest:-/tmp/images/barf}:h}
       ssh ${=ssh_cfg} ${host} -- sudo unzip -q -o /tmp/images/${${image/%:*}:t}.zip -d ${dest:-/tmp/images/barf}
       ssh ${=ssh_cfg} ${host} -- rm /tmp/images/${${image/%:*}:t}.zip
     else
@@ -421,7 +422,7 @@ function worldbuilder_inject {
 
 function worldbuilder_help_foreach {
   cat <<EOF
-worldbuilder foreach <internal task name> [--time] [--verbose]
+worldbuilder foreach <internal task name> [--time] [--verbose] [--show]
   Runs a task for each section in the worldbuilder file.
 
   WORLDBUILDER_SKIPLIST can be set to a comma separated list of sections to skip.
@@ -439,7 +440,7 @@ function worldbuilder_foreach {
     if [[ " ${skiplist[@]} " =~ " ${sec} " ]]; then
       continue
     fi
-    if [[ -n "${ucr_opts[verbose]}" ]];then
+    if [[ -n "${ucr_opts[verbose]}" || -n "${ucr_opts[show]}" ]];then
       local msg=" Running: $cmd '$sec' "
       print -r - ${(l[COLUMNS/2][=]r[COLUMNS-COLUMNS/2][=])msg}
     fi
@@ -459,7 +460,7 @@ function worldbuilder_foreach {
 
 function worldbuilder_help_all {
   cat <<EOF
-worldbuilder all <task> [--time] [--verbose]
+worldbuilder all <task> [--time] [--verbose] [--show]
   Runs a task for each section in the worldbuilder file.
   Tasks are: audit, build, clone, inject, update, where
 

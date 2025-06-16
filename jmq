@@ -177,13 +177,32 @@ function jmq_as_status {
       $jql
     )
   fi
-  local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary"] }')
+  local fields=(key summary)
+  local filter='.issues[] | [.key, .fields.summary] | @tsv'
+  if [[ -n ${ucr_opts[unblocked]} ]]; then
+    # If --unblocked is given, then filter out blocked issues.
+    fields+=("issuelinks")
+    filter='.issues[] | [
+      .key,
+      .fields.summary,
+      (
+        .fields.issuelinks |
+        map(
+          select(.type.inward == "is blocked by" and has("inwardIssue") and
+            (.inwardIssue.fields.status.name as $n | ["On Deck","In Progress","Validation"] | any($n == .))
+          )
+        ) | length
+      )
+    ] | select(.[2] == 0) | del(.[2]) | @tsv'
+  fi
+
+  local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
   v_curl -s https://${JMQ_HOST}/rest/api/2/search \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | \
-    jq -r '.issues[] | [.key, .fields.summary] | @tsv' | \
+    jq -r "$filter" | \
     mlr --itsv --opprint --implicit-csv-header --headerless-csv-output cat
 }
 

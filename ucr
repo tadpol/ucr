@@ -182,7 +182,7 @@ function ucr_env_set {
   fi
 
   # build values req
-  local req=$(jq -n -c '. + ([$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
+  local req=$(jq -n -c 'def nwise($n): while(.!=[]; .[$n:])[:$n]; . + ([$ARGS.positional|nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
 
   v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/env \
     -H 'Content-Type: application/json' \
@@ -699,9 +699,9 @@ function ucr_tsdb_write {
   local opt_req=$(options_to_json ts "[1-9][0-9]*(u|ms|s)?")
   [[ -z "$opt_req" ]] && exit 4
 
-  local req=$(jq -c '. + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
+  local req=$(jq -c 'def nwise($n): while(.!=[]; .[$n:])[:$n]; . + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
     { "tags": (map(select(.value)) | from_entries),
-      "metrics": ([map(select(.value|not)|.key) | _nwise(2) | {"key": .[0], "value": .[1]}] | from_entries)
+      "metrics": ([map(select(.value|not)|.key) | nwise(2) | {"key": .[0], "value": .[1]}] | from_entries)
     })' --args -- "${@}" <<< $opt_req)
   v_curl -s ${(e)ucr_base_url}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/write \
     -H 'Content-Type: application/json' \
@@ -1072,7 +1072,7 @@ function ucr_device_exo_write {
   [[ $# -lt 3 ]] && echo "Need at least 3 arguments" >&2 && exit 2
   shift
   # take args and turn into a JSON object
-  local req=$(jq -n -c '. + ([$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
+  local req=$(jq -n -c 'def nwise($n): while(.!=[]; .[$n:])[:$n];. + ([$ARGS.positional|nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
 
   ucr_device_write "$did" data_in "$req"
 }
@@ -1085,7 +1085,7 @@ function ucr_device_exo_record {
   [[ $# -lt 4 ]] && echo "Need at least 4 arguments" >&2 && exit 2
   shift 2
   # take args and turn into a JSON object
-  local req=$(jq -n -c '. + ([$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
+  local req=$(jq -n -c 'def nwise($n): while(.!=[]; .[$n:])[:$n];. + ([$ARGS.positional|nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
 
   ucr_device_record "$did" data_in "$ts" "$req"
 }

@@ -1037,6 +1037,34 @@ function ucr_device_write {
     -d "${res}=${val}"
 }
 
+function ucr_device_record {
+  # This writes via the external HTTP API.
+  # Only one resource at a time for now. Could expand to allow multiple, but not needed today.
+  # ucr device write <did> <resource> <ts> <value>
+  local did=${1:?Need device id}
+  local res=${2:?Need a resource to write}
+  local ts=${3:?Need a timestamp}
+  local val=${4:?Need a value}
+  get_token
+  local details=$(ucr_service_details device2)
+  local d_host=$(jq -r .parameters.fqdn <<< $details)
+  local vm=$(jq -r .solution_id <<< $details)
+  local cik=$UCR_CIK
+  # if UCR_CIK_<did> is set, use that instead
+  local cik_var="UCR_CIK_${did}"
+  if [[ -n "${(P)${cik_var}}" ]]; then
+    cik=${(P)${cik_var}}
+  fi
+
+  # server actually only supports a subset of form-urlencoded, so manually pack it
+  val=$(jq -r '@uri' <<< $val)
+  v_curl -s https://${d_host}/onep:v1/stack/record \
+    -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
+    -H "X-Exosite-CIK: ${cik}" \
+    -d "alias=${res}&${ts}=${val}"
+}
+
+
 function ucr_device_exo_write {
   # ExoSense wraps channels into a data_in resource
   # ucr device exo write <did> <channel> <value> [<channel> <value> ...]
@@ -1047,6 +1075,19 @@ function ucr_device_exo_write {
   local req=$(jq -n -c '. + ([$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
 
   ucr_device_write "$did" data_in "$req"
+}
+
+function ucr_device_exo_record {
+  # ExoSense wraps channels into a data_in resource
+  # ucr device exo write <did> <ts> <channel> <value> [<channel> <value> ...]
+  local did=${1:?Need device id}
+  local ts=${2:?Need a timestamp}
+  [[ $# -lt 4 ]] && echo "Need at least 4 arguments" >&2 && exit 2
+  shift 2
+  # take args and turn into a JSON object
+  local req=$(jq -n -c '. + ([$ARGS.positional|_nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")
+
+  ucr_device_record "$did" data_in "$ts" "$req"
 }
 
 function ucr_device_activate {

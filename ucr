@@ -290,7 +290,7 @@ function ucr_logs {
 
 function ucr_sc {
   # ucr sc <service> [--listops] [--no-cache] [--in=FILE] <operation> [--listparams] [options]
-  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_DIS_URL "$ucr_dis_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
 
   local service=${1:?Need service name}
 
@@ -380,14 +380,25 @@ function ucr_sc {
     opt_req=$(jq --argjson opt "$opt_req" '. * $opt' $file)
   fi
 
-  local service_uuid=$(ucr_service_uuid $service | jq -r .id)
-
-  # TODO: Replace this with dispatcher call
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/${operation} \
-    -H 'Content-Type: application/json' \
-    -d "$opt_req"
+  _dis_call "${(L)service}" "${operation}" "$opt_req"
 }
 
+function _dis_call {
+  want_envs UCR_DIS_URL "$ucr_dis_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  # Internal function to call the dispatcher
+  local service=$1
+  local operation=$2
+  local data="$3"
+  local res=$(v_curl -s ${UCR_DIS_URL}/call/${UCR_SID}/${(L)service}/${operation} \
+    -H 'Content-Type: application/json' \
+    -d "$data"
+    )
+  if [[ "$(jq -r .error <<< $res)" != "null" ]]; then
+    echo "Error calling ${(L)service}.${operation}: $(jq -r .error <<< $res)" >&2
+    exit 1
+  fi
+  jq .result <<< "$res"
+}
 
 #########################################################################
 # Below are Service specific abstractions
@@ -396,7 +407,6 @@ function ucr_tsdb_query {
   # metric names are just args, tags are <tag name>@<tag value>
   # others are all --options=value
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
   # Validate a list of the options we will care about.
   local opt_req=$(
     options_to_json \
@@ -420,9 +430,7 @@ function ucr_tsdb_query {
       "metrics": map(select(.value | not) | .key)
     })' --args -- "${@}" <<< $opt_req)
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/query \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+  _dis_call tsdb query "$req"
 }
 
 function ucr_tsdb_recent {
@@ -431,7 +439,6 @@ function ucr_tsdb_recent {
   local tag_name=${1:?Need tag name}
   shift
   [[ $# == 0 ]] && echo "Missing metrics and tag values" >&2 && exit 2
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
 
   local req=$(jq -n -c --arg tn "${tag_name}" '{
     "metrics": ($ARGS.positional | map(select(. | startswith("@") | not))),
@@ -439,51 +446,34 @@ function ucr_tsdb_recent {
     "tag_values": ($ARGS.positional | map(select(. | startswith("@"))) | map(split("@") | .[1] )),  
   }' --args -- "${@}")
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/recent \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+  _dis_call tsdb recent "$req"
 }
 
 function ucr_tsdb_list_tags {
-  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
-
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listTags \
-    -H 'Content-Type: application/json' \
-    | jq '.tags |keys'
+  _dis_call tsdb listTags '' | jq '.tags | keys'
 }
 
 function ucr_tsdb_list_metrics {
-  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
-
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listMetrics \
-    -H 'Content-Type: application/json' \
-    | jq .metrics
+  _dis_call tsdb listMetrics '' | jq .metrics
   # someday: Look for .next, and handle repeated calls if need be
 }
 
 function ucr_tsdb_exports {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
   local opt_req=$(
     options_to_json \
     limit "[1-9][0-9]*"
   )
   [[ -z "$opt_req" ]] && exit 4
 
-  v_curl -s "${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/exportJobList?limit=${ucr_opts[limit]:-100}" \
-    -H 'Content-Type: application/json'
+  _dis_call tsdb exportJobList "$opt_req" 
 }
 
 function ucr_tsdb_export_info {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
   local job_id=${1:?Need job id argument}
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/exportJobInfo \
-    -H 'Content-Type: application/json' \
-    -d "{\"job_id\":\"${job_id}\"}"
+  _dis_call tsdb exportJobInfo "{\"job_id\":\"${job_id}\"}"
 }
 
 function ucr_tsdb_export {
@@ -514,7 +504,6 @@ function ucr_tsdb_export {
   #   Can use the `--timestamp` and `--offset` to shortcut for the `timestamp` column.
 
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
   # Validate a list of the options we will care about.
   # Ignored query options: (passing them does nothing)
   #  mode "(merge|split)"
@@ -581,15 +570,12 @@ function ucr_tsdb_export {
     )
   }' --args -- "${@}" <<< $opt_req)
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/export \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+  _dis_call tsdb export "$req"
 }
 
 function ucr_tsdb_write {
   # write [--ts=<timestamp>] <metric> <value> [<metric> <value> …] [<tag>@<value> …]
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
 
   local opt_req=$(options_to_json ts "[1-9][0-9]*(u|ms|s)?")
   [[ -z "$opt_req" ]] && exit 4
@@ -598,47 +584,36 @@ function ucr_tsdb_write {
     { "tags": (map(select(.value)) | from_entries),
       "metrics": ([map(select(.value|not)|.key) | nwise(2) | {"key": .[0], "value": .[1]}] | from_entries)
     })' --args -- "${@}" <<< $opt_req)
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/write \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+
+  _dis_call tsdb write "$req"
 }
 
 function ucr_tsdb_multiWrite {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid tsdb | jq -r .id)
 
   # take STDIN
   local req=$(jq)
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/multiWrite \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+	_dis_call tsdb multiWrite "$req"
 }
 
 function ucr_keystore_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   local match=${1:-*}
   local req=$(jq -n -c --arg match "$match" '{"match":$match,"cursor":0}')
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+  _dis_call keystore list "$req"
 }
 
 function ucr_keystore_get {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   [[ $# == 0 ]] && echo "Missing keys to get" >&2 && exit 2
   local req=$(jq -n -c '{"keys":$ARGS.positional}' --args -- "${@}")
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/mget \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+  _dis_call keystore mget "$req"
 }
 
 function ucr_keystore_set {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   local key=${1:?Need key argument}
   local value=${2:?Need value to set}
   if [[ "$value" = "-" ]]; then
@@ -647,25 +622,19 @@ function ucr_keystore_set {
 
   local req=$(jq -n -c --arg key "$key" --arg value "$value" '{"key":$key,"value":$value}')
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/set \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+  _dis_call keystore set "$req"
 }
 
 function ucr_keystore_delete {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   [[ $# == 0 ]] && echo "Missing keys to delete" >&2 && exit 2
   local req=$(jq -n -c '{"keys":$ARGS.positional}' --args -- "${@}")
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/mdelete \
-    -H 'Content-Type: application/json' \
-    -d "$req"  
+  _dis_call keystore mdelete "$req"
 }
 
 function ucr_keystore_cmd {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid keystore | jq -r .id)
   local cmd=${1:?Need command argument}
   local key=${2:?Need key argument}
   shift 2
@@ -673,28 +642,22 @@ function ucr_keystore_cmd {
     '{"key":$key,"command":$cmd, "args": $ARGS.positional}' \
     --args -- "${@}")
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/command \
-    -H 'Content-Type: application/json' \
-    -d "$req" 
+  _dis_call keystore command "$req"
 }
+
 
 ####################
 
 function ucr_content_info {
-  local service_uuid=$(ucr_service_uuid content | jq -r .id)
   local id=${1:?Need file id}
-
   local req="{\"id\": \"$id\"}"
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/info \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+	_dis_call content info "$req"
 }
 
 function ucr_content_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   # list [--op=AND|OR] [--stop=#] [<prefix filter>] [<tag name filter>@<tag value filter> ...]
-  local service_uuid=$(ucr_service_uuid content | jq -r .id)
   local opt_req=$(options_to_json \
     op "^(AND|OR)$" 
   )
@@ -713,11 +676,7 @@ function ucr_content_list {
   local cursor=''
 
   # first call always happens and has no cursor.
-  local ret=$(
-    v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
-      -H 'Content-Type: application/json' \
-      -d "$p_req"
-  )
+  local ret=$( _dis_call content list "$p_req")
   prior_count=$(jq -r length <<< $ret)
   total_count=$(( total_count + prior_count ))
   cursor=$(jq -r 'last | .id' <<< $ret)
@@ -727,11 +686,7 @@ function ucr_content_list {
   # Loop advancing cursor until an empty reply
   while [[ prior_count -gt 0 && total_count -lt stop_after ]]; do
     local req=$(jq -c --arg cursor "$cursor" '. + {"cursor": $cursor}' <<< $p_req)
-    local ret=$(
-      v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/list \
-        -H 'Content-Type: application/json' \
-        -d "$req"
-    )
+    local ret=$(_dis_call content list "$req")
     prior_count=$(jq -r length <<< $ret)
     total_count=$(( total_count + prior_count ))
     cursor=$(jq -r 'last | .id' <<< $ret)
@@ -742,18 +697,14 @@ function ucr_content_list {
 
 function ucr_content_delete {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid content | jq -r .id)
   local req=$(jq -n -c '{ "body" : $ARGS.positional }' --args -- "$@")
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/deleteMulti \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+  _dis_call content deleteMulti "$req"
 }
 
 function ucr_content_download {
   # doesn't actually download, just returns a URL to download from.
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid content | jq -r .id)
   local cid=${1:?Need content id to download}
   local opt_req=$(options_to_json \
     expires_in "^\d+$" \
@@ -761,15 +712,12 @@ function ucr_content_download {
   [[ -z "$opt_req" ]] && exit 4
   local req=$(jq -c --arg cid "$cid" '. + {"id": $cid|@uri }' <<< $opt_req)
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/download \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+  _dis_call content download "$req"
 }
 
 function ucr_content_upload {
   # Doesn't actually upload, just returns a cURL to upload to.
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid content | jq -r .id)
   local cid=${1:?Need content id to upload}
   local opt_req=$(options_to_json \
     expires_in "^\d+$" \
@@ -779,10 +727,7 @@ function ucr_content_upload {
 
   # A GET req with url encoded file name and query options for the rest.
   local req=$(jq -n -c --arg cid "$cid" '{"id": $cid|@uri }')
-  local psu=$(v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/upload \
-    -H 'Content-Type: application/json' \
-    -d "$req"
-  )
+  local psu=$(_dis_call content upload "$req")
 
   # Convert to new curl params
   local params=($(jq '(.inputs|to_entries|[.[]|"-F", "\"\(.key)=\(.value)\""]) + (["-F", "\"\(.field)=@\(.id)\"", .url]) |.[]' -r <<< $psu))
@@ -794,18 +739,14 @@ function ucr_content_upload {
 function ucr_device_add {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local did=${1:?Need device id}
-  local service_uuid=$(ucr_service_uuid device2 | jq -r .id)
   local req=$(jq -c -n --arg did "$did" '{"identity": $did, locked: false}')
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/addIdentity \
-    -H 'Content-Type: application/json' \
-    -d "$req"
+  _dis_call device2 addIdentity "$req"
 }
 
 function ucr_device_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service_uuid=$(ucr_service_uuid device2 | jq -r .id)
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/listIdentities \
-    -H 'Content-Type: application/json'
+  _dis_call device2 listIdentities "$req"
 }
 
 function ucr_device_info {
@@ -815,11 +756,8 @@ function ucr_device_info {
 function ucr_device_state {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local did=${1:?Need device id}
-  local service_uuid=$(ucr_service_uuid device2 | jq -r .id)
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${service_uuid}/call/getIdentityState \
-    -H 'Content-Type: application/json' \
-    -d "{\"identity\": \"${did}\" }"
+  _dis_call device2 getIdentityState "$req"
 }
 
 # This sets via the cloud side API.
@@ -875,7 +813,6 @@ function ucr_device_record {
     -H "X-Exosite-CIK: ${cik}" \
     -d "alias=${res}&${ts}=${val}"
 }
-
 
 function ucr_device_exo_write {
   # ExoSense wraps channels into a data_in resource

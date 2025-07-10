@@ -15,8 +15,6 @@ else
 fi
 
 function _exo_q {
-  # XXX: The token regex here doesn't match all actual tokens
-  # want_envs EXO_HOST "^[\.A-Za-z0-9-]+$" EXO_TOKEN "^[A-Za-z0-9+/]+={0,2}$"
   want_envs EXO_HOST "^[\.A-Za-z0-9-]+$" EXO_TOKEN "^.+$"
   if [[ -z ${EXO_GQL_HOST} ]]; then
     EXO_GQL_HOST=${EXO_HOST}/api
@@ -27,6 +25,12 @@ function _exo_q {
   local query=$1
   local variables=${2:-'{}'}
   local operationName=${3:-''}
+  # If operationName is not set or empty, then use the name of the first query/mutation found in query.
+  if [[ -z "$operationName" ]]; then
+    if [[ "$query" =~ '(query|mutation)[[:space:]]+([a-zA-Z0-9_]+)' ]]; then
+      operationName=${match[2]}
+    fi
+  fi
 
   local req=$(jq -n -c --arg operationName "$operationName" --arg query "$query" --argjson variables "$variables" \
     '{
@@ -45,6 +49,11 @@ function _exo_q {
 ##############################################################################
 # Define the tasks for this tool
 
+function exo_help_me {
+  print -- 'exo me
+  Return info about the current user
+'
+}
 function exo_me {
   _exo_q 'fragment UserFragment on User {
     id

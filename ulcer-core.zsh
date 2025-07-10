@@ -163,8 +163,6 @@ function want_envs {
 # Values can be coerced into a type by appending `::<type>` to the key name.
 # types would just be the JSON ones, so string, number, boolean, array, object
 # default type is 'auto' which makes number like strings into numbers and the rest is strings.
-#
-#  ? maybe if --help, then dump all of the options and exit? this idea doesn't fit the usage of this function.
 function options_to_json {
   typeset -A maybe_opts=($*)
   local build_req=()

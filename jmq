@@ -159,7 +159,7 @@ function jmq_move {
 
 function jmq_help_as_status {
   cat <<EOF
-jmq as_status <status> [--all]
+jmq as status <status> [--all]
   List the tickets assigned to you and in current projects that are in the given status.
   If --all is given, then all projects are searched.
 EOF

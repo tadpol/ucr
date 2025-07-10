@@ -124,7 +124,7 @@ function exo_group_list {
 }
 
 function exo_group_root {
-  _exo_q 'query { groups(filters: { text: "root" }) { id name } }' | \
+  _exo_q 'query root { groups(filters: { text: "root" }) { id name } }' | \
   jq -r '.data.groups.[] | select(.name == "root") | .id'
 }
 
@@ -281,14 +281,14 @@ function exo_asset_create {
 }
 
 function exo_template_list {
-  _exo_q 'query { templates2 { id name currentVersion } }'
+  _exo_q 'query templates { templates2 { id name currentVersion } }'
 }
 
 #############################################################################
 # Devices
 
 function exo_product_list {
-  _exo_q 'query { products { pid name isSimulator settings { fqdn } } }'
+  _exo_q 'query products { products { pid name isSimulator settings { fqdn } } }'
 }
 
 function exo_device_list {
@@ -382,7 +382,7 @@ function exo_device_set_group {
   local id=${pid}.${did}
   local group_id=${2:?Need group id}
 
-  _exo_q 'mutation ($id: ID!, $group_id: ID!) {
+  _exo_q 'mutation setGroup($id: ID!, $group_id: ID!) {
     updateDevice(id: $id, device: { group_id: $group_id }) { id }
   }' "{\"id\":\"$id\",\"group_id\":\"$group_id\"}"
 }
@@ -418,7 +418,7 @@ function exo_device_delete {
   fi
   local id=${pid}.${did}
 
-  _exo_q 'mutation ($id: ID!) { deleteDevice(id: $id) { id } }' "{\"id\":\"$id\"}"
+  _exo_q 'mutation deviceDelete($id: ID!) { deleteDevice(id: $id) { id } }' "{\"id\":\"$id\"}"
 }
 
 #############################################################################

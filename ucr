@@ -33,25 +33,18 @@ function get_token {
       exit 2
     fi
     # echo "X: $req" >&2
-    export UCR_TOKEN=$(curl -s https://${UCR_HOST}/api:1/token/ -H 'Content-Type: application/json' -d "$req" | jq -r .token)
+    export UCR_TOKEN=$(curl -s https://${UCR_BIZ_URL}/token/ -H 'Content-Type: application/json' -d "$req" | jq -r .token)
   fi
 }
 
-##############################################################################
-# Define the tasks for this tool
-
-# Support old config files
-if [[ -z $UCR_API_URL ]]; then
-  UCR_API_URL=${UCR_SCHEME:-https}://${UCR_HOST}/${UCR_URL_PREFIX:-api:1}
-fi
 # Repeating this in every command gets messy; so we'll do it once here.
+# all the same for now
 ucr_api_url_pattern="^https?://[\.A-Za-z0-9:-]+"
 ucr_dis_url_pattern="^https?://[\.A-Za-z0-9:-]+"
+ucr_biz_url_pattern="^https?://[\.A-Za-z0-9:-]+"
 
-function ucr_token {
-  get_token
-  echo $UCR_TOKEN
-}
+##############################################################################
+# Define the tasks for this tool
 
 function ucr_dump_script {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -229,34 +222,6 @@ function ucr_service_schema {
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/service/${(L)service}/schema
 }
 
-# Business are a bizapi concept; they are not used in peg-api.
-# function ucr_business_solutions {
-#   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
-#   get_token
-
-#   v_curl -s "${UCR_API_URL}/business/${UCR_BID}/solution/" \
-#     -H 'Content-Type: application/json' \
-#     -H "Authorization: token $UCR_TOKEN"
-# }
-
-# function ucr_business_solution_delete {
-#   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_BID "^[a-zA-Z0-9]+$" UCR_SID "^[a-zA-Z0-9]+$"
-#   get_token
-
-#   v_curl -s "${UCR_API_URL}/business/${UCR_BID}/solution/${UCR_SID}" -X DELETE \
-#     -H 'Content-Type: application/json' \
-#     -H "Authorization: token $UCR_TOKEN"
-# }
-
-# function ucr_business_get {
-#   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
-#   get_token
-
-#   v_curl -s "${UCR_API_URL}/business/${UCR_BID}" \
-#     -H 'Content-Type: application/json' \
-#     -H "Authorization: token $UCR_TOKEN"
-# }
-
 function ucr_template_update {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local repo_url
@@ -284,6 +249,40 @@ function ucr_logs {
   local q=$(jq -r 'to_entries|map("\(.key)=\(.value)")|join("&")' <<< $opt_req)
 
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/logs\?${q}
+}
+
+function ucr_business_token {
+  want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
+  get_token
+  echo "$UCR_TOKEN"
+}
+
+function ucr_business_solutions {
+  want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
+  get_token
+
+  v_curl -s "${UCR_BIZ_URL}/business/${UCR_BID}/solution/" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_business_solution_delete {
+  want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
+  local sid=${1:?Need solution id}
+  get_token
+
+  v_curl -s "${UCR_BIZ_URL}/business/${UCR_BID}/solution/${sid}" -X DELETE \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
+}
+
+function ucr_business_get {
+  want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
+  get_token
+
+  v_curl -s "${UCR_BIZ_URL}/business/${UCR_BID}" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: token $UCR_TOKEN"
 }
 
 #########################################################################
@@ -791,7 +790,7 @@ function ucr_device_write {
 function ucr_device_record {
   # This writes via the external HTTP API.
   # Only one resource at a time for now. Could expand to allow multiple, but not needed today.
-  # ucr device write <did> <resource> <ts> <value>
+  # ucr device record <did> <resource> <ts> <value>
   local did=${1:?Need device id}
   local res=${2:?Need a resource to write}
   local ts=${3:?Need a timestamp}

@@ -392,7 +392,7 @@ function _dis_call {
     -H 'Content-Type: application/json' \
     -d "$data"
     )
-  if [[ "$(jq -r .error <<< $res)" != "null" ]]; then
+  if [[ -n "$res" && "$(jq -r .error <<< $res)" != "null" ]]; then
     echo "Error calling ${(L)service}.${operation}: $(jq -r .error <<< $res)" >&2
     exit 1
   fi

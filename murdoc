@@ -182,10 +182,14 @@ function murdoc_labels {
 }
 
 function murdoc_commit {
-  local key=$(murdoc_namer ${1:?Missing Container Name})
-  murdoc_inspect $key | \
-    jq -r '.[0].Config.Labels | to_entries | map(select(.key | test("commit"; "i"))) | .[] | [.key, .value]|@csv' | \
-    mlr --icsv --opprint --implicit-csv-header --headerless-csv-output --no-color cat
+  local key=''
+  if [[ $# > 0 ]]; then
+    key=$(murdoc_namer ${1:?Missing Container Name})
+  fi
+
+  murdoc inspect $key \
+  | jq -r 'map({"name": .Name} + (.Config.Labels | to_entries | map(select(.key | test("commit"; "i"))) | .[] ))' \
+  | mlr --ijson --opprint --hi --ho cut -f name,value then sort -f name then sub -f name /mur_ ''
 }
 
 # Get envs for service, reshape into envs for mongo, load them and call mongo.

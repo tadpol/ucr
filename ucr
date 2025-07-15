@@ -388,15 +388,21 @@ function _dis_call {
   local service=$1
   local operation=$2
   local data="$3"
-  local res=$(v_curl -s ${UCR_DIS_URL}/call/${UCR_SID}/${(L)service}/${operation} \
+
+  local ecf=$(mktemp -t discall.ecf.XXXXXX)
+
+  local res=$(v_curl -s ${UCR_DIS_URL}/call/${UCR_SID}/${(L)service}/${operation}\?noWrap\=true \
+    --write-out "%output{>>${ecf}}%{http_code}" \
     -H 'Content-Type: application/json' \
-    -d "$data"
-    )
-  if [[ -n "$res" && "$(jq -r .error <<< $res)" != "null" ]]; then
-    echo "Error calling ${(L)service}.${operation}: $(jq -r .error <<< $res)" >&2
-    exit 1
+    -d "$data" 
+  )
+
+  local ec=$(( $(<$ecf) ))
+  rm -f $ecf
+  if [[ $ec > 400 ]]; then
+    echo "Error calling ${(L)service}.${operation} [${ec}]:" >&2
   fi
-  jq .result <<< "$res"
+  jq  <<< "$res"
 }
 
 #########################################################################

@@ -392,17 +392,38 @@ function _dis_call {
   local ecf=$(mktemp -t discall.ecf.XXXXXX)
 
   local res=$(v_curl -s ${UCR_DIS_URL}/call/${UCR_SID}/${(L)service}/${operation}\?noWrap\=true \
-    --write-out "%output{>>${ecf}}%{http_code}" \
+    --write-out "%output{>>${ecf}}%{http_code},%{content_type}" \
     -H 'Content-Type: application/json' \
     -d "$data" 
   )
 
-  local ec=$(( $(<$ecf) ))
+  local ec content_type
+  IFS=',' read -r ec content_type < $ecf
+  if [[ -n "${ucr_opts[debug]}" ]]; then
+    echo "Status: $ec Type: $content_type" >&2
+  fi
+  # while _technically_ dispatcher should only ever return application/json, reality is not so kind.
+  if [[ -n "${ucr_opts[raw]}" ]]; then
+    content_type="application/octet-stream"
+  elif [[ -n "${ucr_opts[contenttype]}" ]]; then
+    content_type=${ucr_opts[contenttype]}
+  elif [[ -z "$content_type" ]]; then
+    content_type="application/octet-stream"
+  else
+    content_type=${content_type%%;*} # strip any charset or other params
+  fi
+
+  ec=$((ec))
   rm -f $ecf
   if [[ $ec > 400 ]]; then
     echo "Error calling ${(L)service}.${operation} [${ec}]:" >&2
   fi
-  jq  <<< "$res"
+
+  if [[ $content_type == "application/json" ]]; then
+    jq  <<< "$res"
+  else
+    print "$res"
+  fi
 }
 
 #########################################################################

@@ -122,7 +122,14 @@ function ucr_solution_info {
 
 function ucr_solution_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern"
-  v_curl -s ${UCR_API_URL}/solution \
+  local filter='%7B%7D'
+  local opt_req=$(
+    options_to_json \
+    business_id::string ".*" \
+    template::string ".*"
+  )
+  [[ -n "$opt_req" ]] && filter=$(jq -n -c -r "$opt_req | @uri")
+  v_curl -s ${UCR_API_URL}/solution\?query\=$filter \
     -H 'Content-Type: application/json'
 }
 

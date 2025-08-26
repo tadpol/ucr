@@ -326,6 +326,7 @@ function ucr_sc {
   # Only doing minimal validation here, since pegapi will do full.
   # Now, while this is very OpenAPI like, pegasus calling squashes all the parameters into a single object.
   # So we only need to look at the first item in parameters. It will be an object, whose keys are the parameters.
+  # _sigh_; if one of these has a `x-exosite-from` in its value, then we need to use that for the key instead of the original key.
   local opt_req='{}'
   if [[ $(jq '.parameters|length' <<< $operation_details) > 0 ]]; then
     local param_patterns=($(jq -r '.parameters[0].properties | to_entries[] |
@@ -349,7 +350,7 @@ function ucr_sc {
       else
         "^.*$"
       end |
-      "\(.key)::\(.value.type)", "\(.rex)"' <<< $operation_details))
+      "\(if (.value | has("x-exosite-from")) then .value."x-exosite-from" else .key end)::\(.value.type)", "\(.rex)"' <<< $operation_details))
     # echo "= = $param_patterns" >&2
     [[ -n "$param_patterns" ]] && opt_req=$( options_to_json "${(@)param_patterns}")
     [[ -z "$opt_req" ]] && exit 4

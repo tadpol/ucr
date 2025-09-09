@@ -46,18 +46,38 @@ ucr_biz_url_pattern="^https?://[\.A-Za-z0-9:-]+"
 ##############################################################################
 # Define the tasks for this tool
 
+function ucr_help_dump_script {
+  cat <<EOF
+ucr dump script
+  Dump out the unified Lua script for a solution
+
+  Useful to see what extra junk was actually added.
+EOF
+}
 function ucr_dump_script {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/route/${UCR_SID}/script \
     -H 'Content-Type: application/json'
 }
 
+function ucr_help_dump_source_map {
+  cat <<EOF
+ucr dump source map
+  Dump out a map of the Lua fragments to line numbers of the unified solution script
+EOF
+}
 function ucr_dump_source_map {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/route/${UCR_SID}/sourcemap \
     -H 'Content-Type: application/json'
 }
 
+function ucr_help_flow {
+  cat <<EOF
+ucr flow
+  Get the data-flow config for a solution
+EOF
+}
 function ucr_flow {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/route/${UCR_SID} \
@@ -65,6 +85,14 @@ function ucr_flow {
     | jq '.flow'
 }
 
+function ucr_help_flow_set {
+  cat <<EOF
+ucr flow set < flow_file
+  Set the data-flow config for a solution.
+  The flow_file should be a JSON object representing the flow.
+  To update a flow use: ucr flow | jq <stuff> | ucr flow set
+EOF
+}
 function ucr_flow_set {
   # ucr flow set < flow_file
   # or: ucr flow | jq <stuff> | ucr flow set
@@ -77,12 +105,26 @@ function ucr_flow_set {
     -d "$req"
 }
 
+function ucr_help_env_get {
+  cat <<EOF
+ucr env get
+  Get all solution environment variables for the solution.
+EOF
+}
 function ucr_env_get {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/env \
     -H 'Content-Type: application/json'
 }
 
+function ucr_help_env_set {
+  cat <<EOF
+ucr env set <key> <value> [<key <value> …] [--overwrite]
+  Set one or more solution environment variables for the solution.
+  By default, adds or updates keys.
+  Use --overwrite to replace all prior keys with the new set.
+EOF
+}
 function ucr_env_set {
   # <key> <value> [<key <value> …]
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -101,6 +143,12 @@ function ucr_env_set {
     -d "$req"
 }
 
+function ucr_help_env_del {
+  cat <<EOF
+ucr env del <key> [<key> …]
+  Delete one or more solution environment variables from the solution.
+EOF
+}
 function ucr_env_del {
   # <key> [<key> …]
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -114,12 +162,27 @@ function ucr_env_del {
     -d "$req"
 }
 
+function ucr_help_solution_info {
+  cat <<EOF
+ucr solution info <solution id>
+  Get information about a solution
+EOF
+}
 function ucr_solution_info {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID} \
     -H 'Content-Type: application/json'
 }
 
+function ucr_help_solution_list {
+  cat <<EOF
+ucr solution list [<options>]
+  List all solutions
+  Options:
+    --business_id=<id>   Filter by business id
+    --template=<type>    Filter by template type (application or m2connector)
+EOF
+}
 function ucr_solution_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern"
   local filter='%7B%7D'
@@ -133,6 +196,12 @@ function ucr_solution_list {
     -H 'Content-Type: application/json'
 }
 
+function ucr_help_solution_create {
+  cat <<EOF
+ucr solution create SID=<solution id> [BID=<business id>] [--m2] [--file=<template name>] [--github=<url>] [--exchange=<ids>]
+  Creates a new solution
+EOF
+}
 function ucr_solution_create {
   # ucr solution create SID=<new id> [BID=<business id>] [--m2] [--file=<template name>] [--github=<url>] [--exchange=<ids>]
   want_envs UCR_API_URL "$ucr_api_url_pattern" \
@@ -171,6 +240,12 @@ function ucr_solution_create {
 
 }
 
+function ucr_help_solution_delete {
+  cat <<EOF
+ucr solution delete <solution id>
+  Deletes a solution
+EOF
+}
 function ucr_solution_delete {
   # ucr solution delete <solution id>
   want_envs UCR_API_URL "$ucr_api_url_pattern"
@@ -179,28 +254,49 @@ function ucr_solution_delete {
     -X DELETE
 }
 
+function ucr_help_services {
+  cat <<EOF
+ucr services
+  List all services in a solution
+EOF
+}
 function ucr_services {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig \
     -H 'Content-Type: application/json'
 }
 
-function ucr_service_uuid {
-  ucr_service_details $1
+function ucr_help_service_usage {
+  cat <<EOF
+ucr service usage <service>
+  Get usage information about a service
+EOF
 }
-
 function ucr_service_usage {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${(L)service}/info
 }
 
+function ucr_help_service_details {
+  cat <<EOF
+ucr service details <service>
+  Get details about a service
+EOF
+}
 function ucr_service_details {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${(L)service}
 }
 
+function ucr_help_service_add {
+  cat <<EOF
+ucr service add <service>
+  Add a service to the solution.
+  The <service> can be the name of an IoT Connector to link, or a service name.
+EOF
+}
 function ucr_service_add {
   # ucr service add <service>
   # Note, that the <service> can be the name of an IoT Connector to link
@@ -213,6 +309,13 @@ function ucr_service_add {
     -d "$req"
 }
 
+function ucr_help_service_delete {
+  cat <<EOF
+ucr service delete <service>
+  Delete a service from a solution
+  Note, that the <service> can be the name of an IoT Connector to unlink
+EOF
+}
 function ucr_service_delete {
   # ucr service delete <service>
   # Note, that the <service> can be the name of an IoT Connector to unlink
@@ -223,12 +326,25 @@ function ucr_service_delete {
     -X DELETE
 }
 
+function ucr_help_service_schema {
+  cat <<EOF
+ucr service schema <service>
+  Get the OpenAPI schema for a service
+EOF
+}
 function ucr_service_schema {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/service/${(L)service}/schema
 }
 
+function ucr_help_template_update {
+  cat <<EOF
+ucr template update [<github repo url>]
+  Request a solution to update to the project on Github.
+  If url omitted, then will try to build one from current directory git remote
+EOF
+}
 function ucr_template_update {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local repo_url
@@ -244,6 +360,12 @@ function ucr_template_update {
     -d "$req"
 }
 
+function ucr_help_logs {
+  cat <<EOF
+ucr logs [--limit=] [--offset=]
+  Get solution logs
+EOF
+}
 function ucr_logs {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local opt_req=$(
@@ -258,12 +380,32 @@ function ucr_logs {
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/logs\?${q}
 }
 
+####################
+# BizApi functions
+
+function ucr_help_business_token {
+  cat <<EOF
+ucr business token
+  Get a business token for the business in UCR_BID.
+  Requires UCR_BIZ_URL and UCR_BID to be set.
+  Requires UCR_USER and UCR_PASSWORD to be set for authentication.
+  If either are prefixed with 'op:', then 1Password will be used to get the actual values.
+
+  All other business tasks require this token to operate and automatically call this.
+EOF
+}
 function ucr_business_token {
   want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
   get_token
   echo "$UCR_TOKEN"
 }
 
+function ucr_help_business_solutions {
+  cat <<EOF
+ucr business solutions
+  List all solutions for the business 
+EOF
+}
 function ucr_business_solutions {
   want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
   get_token
@@ -273,6 +415,12 @@ function ucr_business_solutions {
     -H "Authorization: token $UCR_TOKEN"
 }
 
+function ucr_help_business_solution_delete {
+  cat <<EOF
+ucr business solution delete <solution id>
+  Deletes a solution from a business
+EOF
+}
 function ucr_business_solution_delete {
   want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
   local sid=${1:?Need solution id}
@@ -283,6 +431,12 @@ function ucr_business_solution_delete {
     -H "Authorization: token $UCR_TOKEN"
 }
 
+function ucr_help_business_solution_get {
+  cat <<EOF
+ucr business solution get <solution id>
+  Gets solution info from a business
+EOF
+}
 function ucr_business_get {
   want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
   get_token
@@ -294,6 +448,22 @@ function ucr_business_get {
 
 #########################################################################
 
+function ucr_help_sc {
+  cat <<EOF
+ucr sc <service> [--listops] [--no-cache] [--in=FILE] <operation> [--listparams] [options]
+  Call a service operation.
+  Use --listops to list the operations for the service.
+  Use --listparams to list the parameters for the operation.
+  Use --no-cache to force fetching the operations from the API.
+  Use --in=FILE to read parameters from a JSON file instead of command line options.
+  If FILE is '-', read from STDIN.
+
+  Options are mapped to parameters by name, and validated against the parameter pattern if provided.
+  All parameters are passed as options, none are positional.
+
+  Note: This is a generic interface, and does not provide any special handling for specific services or operations.
+EOF
+}
 function ucr_sc {
   # ucr sc <service> [--listops] [--no-cache] [--in=FILE] <operation> [--listparams] [options]
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_DIS_URL "$ucr_dis_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -338,7 +508,7 @@ function ucr_sc {
   if [[ $(jq '.parameters|length' <<< $operation_details) > 0 ]]; then
     local param_patterns=($(jq -r '.parameters[0].properties | to_entries[] |
     	.value.type |= if (.|type) == "array" then
-        .[0]
+        "object"
       else
         .
       end |
@@ -437,6 +607,41 @@ function _dis_call {
 #########################################################################
 # Below are Service specific abstractions
 
+####################
+# TSDB service
+
+function ucr_help_tsdb_query {
+  cat <<EOF
+ucr tsdb query [<options>] <metric>… [<tag name>@<tag value>…]
+  Query time series data.
+  Metric names are just args, tags are <tag name>@<tag value>
+EOF
+if [[ -z "${ucr_opts[short]}" ]]; then
+  cat <<EOF
+  Options:
+    --start_time=<time>        Start time for the query.
+                               (e.g. 1633036800000ms or 1633036800s or RFC3339 UTC string)
+    --end_time=<time>          End time for the query.
+                               (e.g. 1633123200000ms or 1633123200s or RFC3339 UTC string)
+    --relative_start=<time>    Relative start time for the query. (e.g. -1d, -12h, -30m)
+    --relative_end=<time>      Relative end time for the query. (e.g. -1d, -12h, -30m)
+    --sampling_size=<time>     Sampling size for downsampling. (e.g. 1m, 5m, 1h)
+    --limit=<number>           Limit the number of data points returned.
+    --epoch=(u|ms|s)           Return timestamps in microseconds, milliseconds, or seconds.
+                               Defaults to RFC3339 UTC.
+    --mode=(merge|split)       Merge all metrics into a single time series, or split into multiple
+                               series by tag combinations. Default is merge.
+    --fill=(null|previous|none|<number>|~s:.+) 
+                               Fill missing data points with null, previous value, no fill, a
+                               specific number, or a string.  Only in mode=merge.
+    --order_by=(desc|asc)      Order results by timestamp descending or ascending. Default is desc.
+    --aggregate=(avg|min|max|count|sum),+ 
+                               Aggregate data points using the specified functions.
+                               Can specify multiple functions separated by commas.
+                               Note: aggregate requires sampling_size to be set.
+EOF
+  fi
+}
 function ucr_tsdb_query {
   # metric names are just args, tags are <tag name>@<tag value>
   # others are all --options=value
@@ -467,6 +672,13 @@ function ucr_tsdb_query {
   _dis_call tsdb query "$req"
 }
 
+function ucr_help_tsdb_recent {
+  cat <<EOF
+ucr tsdb recent <tag name> <metrics>… [<tag name>@<tag values>…]
+  Get the most recent data points for the given metrics and tag values.
+  Metric names are just args, tags are <tag name>@<tag value>
+EOF
+}
 function ucr_tsdb_recent {
   # recent <tag name> <metrics>… @<tag values>… 
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -483,15 +695,33 @@ function ucr_tsdb_recent {
   _dis_call tsdb recent "$req"
 }
 
+function ucr_help_tsdb_list_tags {
+  cat <<EOF
+ucr tsdb list tags
+  List all tag names.
+EOF
+}
 function ucr_tsdb_list_tags {
   _dis_call tsdb listTags '' | jq '.tags | keys'
 }
 
+function ucr_help_tsdb_list_metrics {
+  cat <<EOF
+ucr tsdb list metrics
+  List all metric names.
+EOF
+}
 function ucr_tsdb_list_metrics {
   _dis_call tsdb listMetrics '' | jq .metrics
   # someday: Look for .next, and handle repeated calls if need be
 }
 
+function ucr_help_tsdb_exports {
+  cat <<EOF
+ucr tsdb exports
+  List all export jobs.
+EOF
+}
 function ucr_tsdb_exports {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local opt_req=$(
@@ -503,6 +733,12 @@ function ucr_tsdb_exports {
   _dis_call tsdb exportJobList "$opt_req" 
 }
 
+function ucr_help_tsdb_export_info {
+  cat <<EOF
+ucr tsdb export_info <job id>
+  Get information about a specific export job.
+EOF
+}
 function ucr_tsdb_export_info {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local job_id=${1:?Need job id argument}
@@ -510,6 +746,61 @@ function ucr_tsdb_export_info {
   _dis_call tsdb exportJobInfo "{\"job_id\":\"${job_id}\"}"
 }
 
+function ucr_help_tsdb_export {
+  cat <<EOF
+ucr tsdb export [<options>] <metric>… [<tag name>@<tag value>…] [<formatting>…]
+  Export time series data to a CSV file.
+EOF
+if [[ -z "${ucr_opts[short]}" ]]; then
+  cat <<EOF
+  Metric names are just args, tags are <tag name>@<tag value>, formats are <metric>#<action>#<value>
+  Options:
+    --output=<filename>      Output file name. Defaults to <timestamp>_auto.csv
+    --start_time=<time>      Start time for the query.
+                             (e.g. 1633036800000ms or 1633036800s or RFC3339 UTC string)
+    --end_time=<time>        End time for the query.
+                             (e.g. 1633036800000ms or 1633036800s or RFC3339 UTC string)
+    --relative_start=<time>  Relative start time for the query.  (e.g. -1h)
+    --relative_end=<time>    Relative end time for the query.  (e.g. -1h)
+    --limit=<number>         Limit the number of results.  (e.g. 100)
+    --epoch=<unit>           Epoch time unit.  (e.g. s, ms, us) Defaults to RFC3339 UTC.
+    --fill=<method>          Fill method for missing data. (e.g. previous, null)
+    --order_by=<field>       Order results by a specific field. (e.g. timestamp)
+
+    --timestamp=<time format>
+                             Apply a datetime format to the timestamp column.
+                             (e.g. %Y-%m-%dT%H:%M:%S.%f%z)
+    --offset=<hours>         Offset to apply to the timestamp. (e.g. -4 for EDT)
+    --include=<tags>         Comma-separated list of which tags to include in the export.
+                             (e.g. tag1,tag2)
+                             Default is to exclude all tags.
+
+  Formatting:
+    ORDER MATTERS! FE: round before label is different than label before round
+    
+    <metric>#label#<string>
+    3456789#label#foo
+      Prefix value with 'foo'
+    
+    <metric>#round#<number>
+    3456789#round#9
+      Round by 9
+    
+    <metric>#rename#<string>
+    34567890#rename#bob
+      Replace metric name with 'bob'
+    
+    <metric>#replace#<regexp>#<replace>
+    123456#replace#([0-9])([0-9])#\2-\1
+      Do regexp on value. replace uses '\1' for capture groups.
+    
+    <metric>|timestamp#datetime#<date format>#<offset>
+    98765#datetime#year_%Y#-4
+      Apply a datetime format to the value. Value should be microseconds since the EPOCH.
+      Can use the '--timestamp' and '--offset' to shortcut for the 'timestamp' column.
+EOF
+  fi
+}
 function ucr_tsdb_export {
   # metric names are just args, tags are <tag name>@<tag value>, formats are <metric>#<action>#<value>
   #
@@ -607,11 +898,18 @@ function ucr_tsdb_export {
   _dis_call tsdb export "$req"
 }
 
+function ucr_help_tsdb_write {
+  cat <<EOF
+ucr tsdb write [--ts=<timestamp>] <metric> <value> [<metric> <value> …] [<tag>@<value> …]
+  Write time series data points.
+  Metric names and values are pairs of args, tags are <tag name>@<tag value>
+EOF
+}
 function ucr_tsdb_write {
   # write [--ts=<timestamp>] <metric> <value> [<metric> <value> …] [<tag>@<value> …]
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
 
-  local opt_req=$(options_to_json ts "[1-9][0-9]*(u|ms|s)?")
+  local opt_req=$(options_to_json ts "[1-9][0-9]*(u|ms|s)?") # ??? does ts take suffixes?
   [[ -z "$opt_req" ]] && exit 4
 
   local req=$(jq -c 'def nwise($n): while(.!=[]; .[$n:])[:$n]; . + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
@@ -622,14 +920,15 @@ function ucr_tsdb_write {
   _dis_call tsdb write "$req"
 }
 
-function ucr_tsdb_multiWrite {
-  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+####################
+# Keystore service
 
-  # take STDIN
-  local req=$(jq)
-	_dis_call tsdb multiWrite "$req"
+function ucr_help_keystore_list {
+  cat <<EOF
+ucr keystore list [<match>]
+  List keys in the keystore. Optionally filter by match pattern (default '*')
+EOF
 }
-
 function ucr_keystore_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local match=${1:-*}
@@ -638,6 +937,12 @@ function ucr_keystore_list {
   _dis_call keystore list "$req"
 }
 
+function ucr_help_keystore_get {
+  cat <<EOF
+ucr keystore get <key> [<key> …]
+  Get one or more keys from the keystore.
+EOF
+}
 function ucr_keystore_get {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   [[ $# == 0 ]] && echo "Missing keys to get" >&2 && exit 2
@@ -646,6 +951,13 @@ function ucr_keystore_get {
   _dis_call keystore mget "$req"
 }
 
+function ucr_help_keystore_set {
+  cat <<EOF
+ucr keystore set <key> <value>
+  Set a key in the keystore. Use '-' as value to read from STDIN.
+  (atm there is no way to set a value of '-')
+EOF
+}
 function ucr_keystore_set {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local key=${1:?Need key argument}
@@ -659,6 +971,12 @@ function ucr_keystore_set {
   _dis_call keystore set "$req"
 }
 
+function ucr_help_keystore_delete {
+  cat <<EOF
+ucr keystore delete <key> [<key> …]
+  Delete one or more keys from the keystore.
+EOF
+}
 function ucr_keystore_delete {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   [[ $# == 0 ]] && echo "Missing keys to delete" >&2 && exit 2
@@ -667,6 +985,12 @@ function ucr_keystore_delete {
   _dis_call keystore mdelete "$req"
 }
 
+function ucr_help_keystore_cmd {
+  cat <<EOF
+ucr keystore cmd <key> <command> [<arg> …]
+  Execute a command on a key in the keystore.
+EOF
+}
 function ucr_keystore_cmd {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local cmd=${1:?Need command argument}
@@ -682,6 +1006,12 @@ function ucr_keystore_cmd {
 
 ####################
 
+function ucr_help_content_info {
+  cat <<EOF
+ucr content info <content id>
+  Returns information about the specified content.
+EOF
+}
 function ucr_content_info {
   local id=${1:?Need file id}
   local req="{\"id\": \"$id\"}"
@@ -689,6 +1019,14 @@ function ucr_content_info {
 	_dis_call content info "$req"
 }
 
+function ucr_help_content_list {
+  cat <<EOF
+ucr content list [--op=AND|OR] [--stop=#] [<prefix filter>] [<tag name filter>@<tag value filter> ...]
+  Lists content matching the specified filters.
+  --op determines if multiple tag filters are ANDed or ORed. Default is AND.
+  --stop limits the number of results returned. Default is no limit.
+EOF
+}
 function ucr_content_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   # list [--op=AND|OR] [--stop=#] [<prefix filter>] [<tag name filter>@<tag value filter> ...]
@@ -729,6 +1067,12 @@ function ucr_content_list {
   done
 }
 
+function ucr_help_content_delete {
+  cat <<EOF
+ucr content delete <content id> [<content id> ...]
+  Deletes the specified content.
+EOF
+}
 function ucr_content_delete {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local req=$(jq -n -c '{ "body" : $ARGS.positional }' --args -- "$@")
@@ -736,6 +1080,13 @@ function ucr_content_delete {
   _dis_call content deleteMulti "$req"
 }
 
+function ucr_help_content_download {
+  cat <<EOF
+ucr content download <content id> [--expires_in=<seconds>]
+  Returns a URL to download content from.
+  --expires_in determines how long the URL is valid for.
+EOF
+}
 function ucr_content_download {
   # doesn't actually download, just returns a URL to download from.
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -749,6 +1100,13 @@ function ucr_content_download {
   _dis_call content download "$req"
 }
 
+function ucr_help_content_upload {
+  cat <<EOF
+ucr content upload <content id> [--expires_in=<seconds>] [--type=<mime type>]
+  Returns a curl command line to upload content to.
+  --expires_in determines how long the URL is valid for.
+EOF
+}
 function ucr_content_upload {
   # Doesn't actually upload, just returns a cURL to upload to.
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -770,6 +1128,13 @@ function ucr_content_upload {
 
 ##################################################
 
+function ucr_help_device_add {
+  cat <<EOF
+ucr device add <did>
+  Adds a device to the allowlist.
+  "ucr device activate" must be called afterwards to be able to write to it.
+EOF
+}
 function ucr_device_add {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local did=${1:?Need device id}
@@ -777,26 +1142,51 @@ function ucr_device_add {
   _dis_call device2 addIdentity "$req"
 }
 
+function ucr_help_device_list {
+  cat <<EOF
+ucr device list
+  Lists all devices.
+EOF
+}
 function ucr_device_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local service_uuid=$(ucr_service_uuid device2 | jq -r .id)
-  _dis_call device2 listIdentities "$req"
+  _dis_call device2 listIdentities ""
 }
 
+function ucr_help_device_info {
+  cat <<EOF
+ucr device info <did>
+  Displays information about device service
+EOF
+}
 function ucr_device_info {
   ucr_service_details device2
 }
 
+function ucr_help_device_state {
+  cat <<EOF
+ucr device state <did>
+  Displays the current state of a device.
+  This includes the set and reported values for resources.
+EOF
+}
 function ucr_device_state {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local did=${1:?Need device id}
-
+  local req=$(jq -c -n --arg did "$did" '{"identity": $did}')
   _dis_call device2 getIdentityState "$req"
 }
 
 # This sets via the cloud side API.
 # function ucr_device_state_set { }
 
+function ucr_help_device_write {
+  cat <<EOF
+ucr device write <did> <resource> <value>
+  Records a resource value via the external HTTP API.
+  Looks up the CIK via ENV as "UCR_CIK_\${did}"
+EOF
+}
 function ucr_device_write {
   # This writes via the external HTTP API.
   # Only one resource at a time for now. Could expand to allow multiple, but not needed today.
@@ -822,6 +1212,13 @@ function ucr_device_write {
     -d "${res}=${val}"
 }
 
+function ucr_help_device_record {
+  cat <<EOF
+ucr device record <did> <resource> <ts> <value>
+  Records a resource value via the external HTTP API.
+  Looks up the CIK via ENV as "UCR_CIK_\${did}"
+EOF
+}
 function ucr_device_record {
   # This writes via the external HTTP API.
   # Only one resource at a time for now. Could expand to allow multiple, but not needed today.
@@ -848,9 +1245,17 @@ function ucr_device_record {
     -d "alias=${res}&${ts}=${val}"
 }
 
+function ucr_help_device_exo_write {
+  cat <<EOF
+ucr device exo write <did> <channel> <value> [<channel> <value> ...]
+  Writes channel values via the external HTTP API.
+  Looks up the CIK via ENV as "UCR_CIK_\${did}"
+EOF
+}
 function ucr_device_exo_write {
   # ExoSense wraps channels into a data_in resource
   # ucr device exo write <did> <channel> <value> [<channel> <value> ...]
+  # TODO: Add a way to set channel values as JSON
   local did=${1:?Need device id}
   [[ $# -lt 3 ]] && echo "Need at least 3 arguments" >&2 && exit 2
   shift
@@ -860,6 +1265,13 @@ function ucr_device_exo_write {
   ucr_device_write "$did" data_in "$req"
 }
 
+function ucr_help_device_exo_record {
+  cat <<EOF
+ucr device exo record <did> <ts> <channel> <value> [<channel> <value> ...]
+  Records channel values via the external HTTP API.
+  Looks up the CIK via ENV as "UCR_CIK_\${did}"
+EOF
+}
 function ucr_device_exo_record {
   # ExoSense wraps channels into a data_in resource
   # ucr device exo write <did> <ts> <channel> <value> [<channel> <value> ...]
@@ -873,6 +1285,29 @@ function ucr_device_exo_record {
   ucr_device_record "$did" data_in "$ts" "$req"
 }
 
+function ucr_help_device_confirm {
+  cat <<EOF
+ucr device confirm <did> [<resource>]
+  Confirms the set value of a resource by reporting it.
+  The device must be active for this to work.
+
+  <resource> defaults to 'config_io'
+EOF
+}
+function ucr_device_confirm {
+  local did=${1:?Need device id}
+  local rid=${2:-config_io}
+
+  local state=$(ucr_device_state "$did" | jq -r --arg rid "$rid" '.[$rid].set')
+  ucr_device_write "$did" "$rid" "$state"
+}
+
+function ucr_help_device_activate {
+  cat <<EOF
+ucr device activate <did>
+  Activates a device via the external HTTP API.
+EOF
+}
 function ucr_device_activate {
   # This activates via the external HTTP API.
   local did=${1:?Need device id}

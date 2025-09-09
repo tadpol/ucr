@@ -203,7 +203,7 @@ function worldbuilder_switch {
 
 function worldbuilder_help_audit {
   cat <<EOF
-worldbuilder audit <section>
+worldbuilder audit <section> [--verbose] [--image] -- [trivy options]
   Runs the audit tool for the section.
 EOF
 }
@@ -448,7 +448,7 @@ function worldbuilder_foreach {
     # the `'` in front of the $sec is to enable fzf exact mode.
     $cmd "'$sec"
     # TODO: get the list of vars to unset from the section…
-    unset image type commit repo dir platform dest build_cmd
+    unset image type commit repo dir platform dest build_cmd build_pre_cmd build_post_cmd
   done
 
   if [[ -n "${ucr_opts[time]}" ]]; then

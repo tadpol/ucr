@@ -161,14 +161,17 @@ function murdoc_names {
 function murdoc_namer {
   # If exists AND younger than 2 days, then cache_file is not empty. (use the cache file)
   # Otherwise, update cache
-  if [[ ! -f ~/.murdoc_names_cache ]]; then
-    murdoc_names | tr -d / > ~/.murdoc_names_cache
+  local cache_file=$HOME/.cache/murdoc/names_cache
+  [[ ! -d $HOME/.cache/murdoc ]] && mkdir -p $HOME/.cache/murdoc
+
+  if [[ ! -f $cache_file ]]; then
+    murdoc_names | tr -d / > $cache_file
   fi
-  cache_file=~/.murdoc_names_cache(N,md-2)
-  if [[ -z "$cache_file" ]]; then
-    murdoc_names | tr -d / > ~/.murdoc_names_cache
+  local cache_file_check=${cache_file}(N,md-2)
+  if [[ -z "$cache_file_check" ]]; then
+    murdoc_names | tr -d / > $cache_file
   fi
-  fzf -1 --no-multi --query "${1:-m}" < ~/.murdoc_names_cache
+  fzf -1 --no-multi --query "${1:-m}" < $cache_file
 }
 
 function murdoc_env {

@@ -34,7 +34,7 @@ function jmq_q {
     fields=(${(s:,:)ucr_opts[fields]})
   fi
   local req=$(jq -n -c --arg jql "${(j: :)jql}" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
-  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req"
@@ -60,7 +60,7 @@ function jmq_pr {
   fi
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": ["key","summary"] }')
 
-  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | jq -r '.issues[] | .fields.summary + " (" + .key + ")"' 2>/dev/null
@@ -198,7 +198,7 @@ function jmq_as_status {
 
   local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
-  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | \
@@ -260,7 +260,7 @@ function jmq_info {
     )
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
-  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | jq -r '.issues[] | 
@@ -292,7 +292,7 @@ function jmq_status {
   )
   local req=$(jq -n -c --arg jql "${(j: AND :)jql}" '{"jql": $jql, "fields": ["key","summary","status"] }')
 
-  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | jq --argjson sts "[\"${(j:",":)statuses}\"]" -r '.issues |
@@ -362,7 +362,7 @@ function jmq_files {
     )
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
-  v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+  v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | \
@@ -424,7 +424,7 @@ function jmq_labels {
   done
   local jql="key in (${(j:,:)keys})"
   local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "labels"] }') 
-  local res=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+  local res=$(v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req"
@@ -528,7 +528,7 @@ function jmq_links {
 
   local jql="key in (${(j:,:)keys})"
   local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks", "fixVersions", "labels"] }') 
-  local res=$(v_curl -s https://${JMQ_HOST}/rest/api/2/search \
+  local res=$(v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req"

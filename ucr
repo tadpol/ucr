@@ -254,6 +254,9 @@ function ucr_solution_delete {
     -X DELETE
 }
 
+####################
+# Service Config
+
 function ucr_help_services {
   cat <<EOF
 ucr services
@@ -326,6 +329,9 @@ function ucr_service_delete {
     -X DELETE
 }
 
+####################
+# Service 
+
 function ucr_help_service_schema {
   cat <<EOF
 ucr service schema <service>
@@ -337,6 +343,45 @@ function ucr_service_schema {
   local service=${1:?Need service name}
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/service/${(L)service}/schema
 }
+
+function ucr_help_service_installed {
+  cat <<EOF
+ucr service installed [<options>]
+  List all services installed.
+  These are the services that can be added to a solution.
+  Options:
+    --limit=<n>        Limit the number of results
+    --offset=<n>       Offset the results by n
+    --alias=<string>   Filter by alias (regex)
+    --status=<list>    Comma separated list of statuses to filter by (available, hidden, removed, draft)
+    --tags=<list>      Comma separated list of tags to filter by
+    --type=<list>      Comma separated list of types to filter by (C, X, E, P, S)
+EOF
+}
+function ucr_service_installed {
+  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  local opt_req=$(
+    options_to_json \
+    limit "[1-9][0-9]*" \
+    offset "[1-9][0-9]*"
+  )
+  [[ -z "$opt_req" ]] && exit 4
+  local opt_query=$(
+    options_to_json \
+    alias::string "^.*$" \
+    status::array "^(available|hidden|removed|draft)(,(available|hidden|removed|draft))*$" \
+    tags::array "^[a-zA-Z0-9_-]+(,[a-zA-Z0-9_-]+)*$" \
+    type::array "^[CXEPS](,[CXEPS])*$"
+  )
+  [[ -z "$opt_query" ]] && exit 4
+
+  # opt_req is an object, opt_query needs to be added to it as the 'query' key with its value as a @uri string
+  local q=$(jq -r --argjson q "$opt_query" '( . + (if ($q | length) > 0 then {"query":($q|@uri)} else {} end)) | to_entries | map("\(.key)=\(.value)") | join("&")' <<< $opt_req)
+
+  v_curl -s ${UCR_API_URL}/service\?${q}
+}
+
+####################
 
 function ucr_help_template_update {
   cat <<EOF

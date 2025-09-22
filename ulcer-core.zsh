@@ -195,7 +195,12 @@ function options_to_json {
       	  string)
       	    build_req+="\"${key}\":\"${ucr_opts[$key]}\""
             ;;
-          array|object|json)
+          array)
+            # want to convert a comma separated list into a JSON array
+            local arr=(${(s:,:)ucr_opts[$key]})
+            build_req+="\"${key}\":$(jq -c -n '$ARGS.positional' --args ${arr[@]})"
+            ;;
+          object|json)
             build_req+="\"${key}\":$(jq -c <<< ${ucr_opts[$key]})"
             ;;
       	  *)
@@ -214,7 +219,7 @@ function options_to_json {
       fi
     fi
   done
-  echo "{ ${(j:, :)build_req} }"
+  echo "{ ${(j:, :)build_req} }" | jq -c
 }
 
 # Above is functions and such to be the core.

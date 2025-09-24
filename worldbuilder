@@ -265,7 +265,7 @@ function worldbuilder_build {
   local docker_tool=${WORLDBUILDER_DOCKER_TOOL:-docker} # or 'nerdctl' or 'nerdctl.lima'
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   [[ ! -v "type" ]] && typeset -g -x type=docker
-  [[ ! -v "platform" ]] && typeset -g -x platform=linux/arm64
+  [[ ! -v "platform" ]] && typeset -g -x platform=$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')
 
   want_envs dir "^.+$" image "^.+$" type "^.+$" commit "^.*$" repo "^.+$"
 

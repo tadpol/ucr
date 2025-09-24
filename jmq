@@ -17,6 +17,32 @@ fi
 ##############################################################################
 # Define the tasks for this tool
 
+function jmq_help {
+  cat <<EOF
+jmq <task> [<args…>] [--opts…] [KEY=VALUE…]
+  A cli to Jira.
+
+  'jmq help <task>' or 'jmq <task> --help' for more info on a specific task.
+  'jmq tasks [<prefix filter>]' to see what tasks are implemented.
+  'jmq state' to check ENVs, ARGs, and options.
+
+  Options, key-values, and arguments can be interwoven as make sense.
+
+  Key-Values:
+    These get prefixed with JMQ_, upcased, and then become environment variables.
+
+  Environment variables:
+    JMQ_HOST       The Jira host (e.g. jira.example.com)
+    JMQ_USER       The Jira user (e.g. user@example.com)
+                   If value is an 1password URI, then value will be fetched using the 'op' tool
+    JMQ_PASSWORD   The Jira password (e.g. password)
+                   If value is an 1password URI, then value will be fetched using the 'op' tool
+    JMQ_PROJECTS   Comma separated list of project keys to use as default (e.g. PROJ1,PROJ2)
+                   Used when a ticket number is given without a project key.
+                   Also used for the todo and doing commands.
+EOF
+}
+
 function jmq_help_q {
   cat <<EOF
 jmq q <jql> [--fields=<fields>]

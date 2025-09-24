@@ -49,10 +49,39 @@ function _exo_q {
 ##############################################################################
 # Define the tasks for this tool
 
+function exo_help {
+  cat <<EOS
+exo <task> [<args…>] [<opts…>]
+  An evolving CLI interface to ExoSense.
+
+  See 'exo help <task>' or 'exo <task> --help' for more info on a specific task.
+  'exo tasks [<prefix filter>]' to see what tasks are implemented.
+  'exo state' to check ENVs, ARGs, and options.
+
+  Options, key-values, and arguments can be interwoven as make sense.
+
+  Key-Values:
+    These get prefixed with JMQ_, upcased, and then become environment variables.
+
+  Environment variables:
+    EXO_HOST     The host domain of ExoSense
+    EXO_TOKEN    The API Token
+    EXO_GQL_HOST Optional, only if the GQL domain is different
+EOS
+}
+
+function exo_q {
+  # exo q <query> [<variables>] [<operationName>]
+  # Run a GraphQL query against the ExoSense API
+
+  _exo_q "$@"
+}
+
 function exo_help_me {
-  print -- 'exo me
+  cat <<EOS
+exo me
   Return info about the current user
-'
+EOS
 }
 function exo_me {
   _exo_q 'fragment UserFragment on User {
@@ -72,6 +101,26 @@ function exo_me {
 #############################################################################
 # Groups
 
+function exo_help_group_list {
+  cat <<EOS
+exo group list [<options>]
+  List all groups
+
+  Options:
+    group_type_id=<id>   Filter by group type id
+    group_id=<id>        Filter by group id
+    text=<string>        Filter by text in name or description
+
+    includeAll           Include children, assets, devices, and users
+    includeChildren      Include child groups
+    includeAssets        Include assets in each group
+    includeDevices       Include devices in each group
+    includeUsers         Include users in each group
+
+    limit=<number>       Limit the number of results (default 50)
+    offset=<number>      Offset the results by this amount (default 0)
+EOS
+}
 function exo_group_list {
   local filters=$(options_to_json \
     group_type_id "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" \
@@ -123,11 +172,29 @@ function exo_group_list {
   }' "$vars"
 }
 
+function exo_help_group_root {
+  cat <<EOS
+exo group root
+  Get the ID of the root group
+EOS
+}
 function exo_group_root {
   _exo_q 'query root { groups(filters: { text: "root" }) { id name } }' | \
   jq -r '.data.groups.[] | select(.name == "root") | .id'
 }
 
+function exo_help_group_create {
+  cat <<EOS
+exo group create <name> [<parent id>]
+  Create a new group
+  If no parent id is given, the root group will be used.
+
+  Options:
+    description=<string>     A description of the group
+    custom_id=<string>       A custom identifier for the group
+    node_type_id=<id>        The group type id
+EOS
+}
 function exo_group_create {
   local name=${1:?Need group name}
   local parentId=${2:-$(exo_group_root)}
@@ -148,6 +215,12 @@ function exo_group_create {
   _exo_q 'mutation createGroup($newGroup: CreateGroup) { createGroup(group: $newGroup) { id } }' "$vars"
 }
 
+function exo_help_group_create_from {
+  cat <<EOS
+exo group create from <parent id> <group info file>
+  Create a new group from a group info file
+EOS
+}
 function exo_group_create_from {
   # Creates a group from a group info file
   local parent_id=${1:?Need parent id}
@@ -160,6 +233,12 @@ function exo_group_create_from {
   _exo_q 'mutation createGroup($newGroup: CreateGroup) { createGroup(group: $newGroup) { id } }' "$vars"
 }
 
+function exo_help_group_delete {
+  cat <<EOS
+exo group delete <group id>
+  Delete a group
+EOS
+}
 function exo_group_delete {
   local group_id=${1:?Need group id}
   _exo_q 'mutation deleteGroup($id: ID!) { deleteGroup(id: $id) { id } }' "{\"id\":\"${group_id}\"}"
@@ -168,6 +247,30 @@ function exo_group_delete {
 #############################################################################
 # Assets
 
+function exo_help_asset_list {
+  cat <<EOS
+exo asset list [<options>] [<asset id> …]
+  List assets
+
+  Options:
+    group_id=<id>        Filter by group id
+    text=<string>        Filter by text in name or description
+    created_from=<date>  Filter by creation date (from)
+    created_to=<date>    Filter by creation date (to)
+    level=<string>       Filter by log level
+    orderBy=<string>     Sort by a specific field
+    sort=<string>        Sort order (asc or desc)
+    location=<boolean>   Include location information
+
+    includeTemplates     Include template information
+    includeParent        Include parent asset information
+    includeMeta          Include meta information
+    includeLocation      Include location information
+
+    limit=<number>       Limit the number of results (default 50)
+    offset=<number>      Offset the results by this amount (default 0)
+EOS
+}
 function exo_asset_list {
   # exo asset list [<options>] [<asset id> …]
   local filters=$(
@@ -214,17 +317,60 @@ function exo_asset_list {
    }' "$vars"
 }
 
+function exo_help_asset_export {
+  cat <<EOS
+exo asset export <asset id>
+  Export an asset as a YAML template
+EOS
+}
 function exo_asset_export {
   local asset_id=${1:?Need asset id}
   _exo_q 'mutation CreateTemplateYAML($id: ID!) {  createTemplateYAML(id: $id) }' "{\"id\":\"${asset_id}\"}" | \
     jq -r '.data.createTemplateYAML'
 }
 
+function exo_help_asset_delete {
+  cat <<EOS
+exo asset delete <asset id>
+  Deletes an asset
+EOS
+}
 function exo_asset_delete {
   local asset_id=${1:?Need asset id}
   _exo_q 'mutation deleteAsset($id: ID!) { deleteAsset(id: $id) { id } }' "{\"id\":\"${asset_id}\"}"
 }
 
+function exo_help_asset_create {
+  cat <<EOS
+exo asset create <template file> [<asset name>]
+  Create a new asset from a template
+
+  Options:
+    group=<id>      The group to create the asset in (default: root group)
+    pid=<pid>       The product id to use for channel mapping
+    did=<did>       The device id to use for channel mapping
+    map=<file>      A JSON file containing a mapping to apply to the channel mapping
+
+  The template file is a YAML file exported from ExoSense.
+  If no asset name is given, the name in the template will be used.
+
+  Channel mapping is the most complex part of creating an asset from a template.
+  By default, the channels in the template will be mapped to the same channels on the same device.
+  This is unlikely to be what you want.
+  You can use the pid and did options to change the product and device ids in the channel mapping.
+  You can also use a map file to apply more complex mappings.
+  A map file is a JSON array of objects with "when" and "then" keys.
+  The "when" key is an object with any of pid, did, rid, cid to match.
+  The "then" key is an object with any of pid, did, rid, cid to replace.
+  For example, to change all channels from pid "oldpid" and did "olddid" to pid "newpid" and did "newdid":
+    [
+      {
+        "when": { "pid": "oldpid", "did": "olddid" },
+        "then": { "pid": "newpid", "did": "newdid" }
+      }
+    ]
+EOS
+}
 function exo_asset_create {
   local template=${1:?Need template file}
   local assetName=$2
@@ -280,17 +426,193 @@ function exo_asset_create {
   }' "$vars"
 }
 
+function exo_help_template_list {
+  cat <<EOS
+exo template list
+  List all templates
+EOS
+}
 function exo_template_list {
   _exo_q 'query templates { templates2 { id name currentVersion } }'
+}
+
+function exo_help_asset_swap_iimf {
+  cat <<EOS
+exo asset swap iimf <asset id> <old iim> <old iimf id> <new iim> <new iimf id>
+  Swap an IIMF in an asset for another IIMF.
+  This will update all transformations, rules, and actions that use the old IIMF to use the new IIMF.
+  
+  It does NOT check to see if the functions are compatible, that‘s your job.
+
+  !!!WARNING!!! This sometimes fails in strange ways. You have been warned.
+EOS
+}
+function exo_asset_swap_iimf {
+  # exo asset swap iimf <asset id> <old iim> <old iimf id> <new iim> <new iimf id>
+  local asset_id=${1:?Need asset id}
+  local old_iim=${2:?Need old IIM id}
+  local old_iimf=${3:?Need old IIMF id}
+  local new_iim=${4:?Need new IIM id}
+  local new_iimf=${5:?Need new IIMF id}
+
+  # Fetch the asset.
+  # Loop over insights (transforms, rules, and actions)
+  # If has old, then call update to swap to new
+
+  local asset=$(_exo_q '
+    fragment SLC on SignalLinkageCheck {
+      id
+      check {
+      	... on LinkageCheckBoolean { kind invert}
+        ... on LinkageCheckString { kind contains }
+        ... on LinkageCheckNumber { kind inside upper lower }
+        ... on LinkageCheckTime { kind range tz}
+        ... on LinkageCheckJSON { kind path }
+      }
+    }
+  query get($id:ID) {
+    asset(id: $id) {
+      id name 
+      transformations {
+        ... on InsightTransformation {
+          id insight_id function_id group_id
+          name
+          subscribes { id tag }
+          publishes { id }
+          checks {
+            pre { ...SLC }
+            post { ...SLC }
+          }
+          constants
+          templateOverrides
+        }
+      }
+      rulez {
+        id insight_id function_id group_id
+        name
+        subscribes { id tag }
+        category
+        constants
+        checks {
+          pre { ...SLC }
+        }
+      }
+      actions {
+        id insight_id function_id group_id
+        action_definition_id
+        name
+        subscribes { id }
+        constants
+        checks {
+          pre { ...SLC }
+        }
+      }
+    }
+  }' "{\"id\":\"${asset_id}\"}")
+
+  local asset_name=$(jq -r '.data.asset.name' <<< $asset)
+
+  # filter transformations, rules, and actions for the old IIM and IIMF
+  local old_transforms=$(jq --arg old_iim "$old_iim" --arg old_iimf "$old_iimf" \
+    '[.data.asset.transformations[] | select(.insight_id == $old_iim and .function_id == $old_iimf)]' <<< $asset)
+  local old_transforms_len=$(jq 'length' <<< $old_transforms)
+  local old_rules=$(jq --arg old_iim "$old_iim" --arg old_iimf "$old_iimf" \
+    '[.data.asset.rulez[] | select(.insight_id == $old_iim and .function_id == $old_iimf)]' <<< $asset)
+  local old_rules_len=$(jq 'length' <<< $old_rules)
+  local old_actions=$(jq --arg old_iim "$old_iim" --arg old_iimf "$old_iimf" \
+    '[.data.asset.actions[] | select(.insight_id == $old_iim and .function_id == $old_iimf)]' <<< $asset)
+  local old_actions_len=$(jq 'length' <<< $old_actions)
+
+  if [[ $old_transforms_len -eq 0 && $old_rules_len -eq 0 && $old_actions_len -eq 0 ]]; then
+    echo "No transformations, rules, or actions found for $asset_name with old IIM $old_iim and IIMF $old_iimf" >&2
+    exit 1
+  fi
+
+  echo "Swapping IIMF for asset $asset_name ($asset_id):"
+  if [[ $old_transforms_len -gt 0 ]]; then
+    echo "Swapping $old_transforms_len transforms"
+    for ((i=0; i < old_transforms_len; i++)); do
+      # select transform, and mutate for update
+      local transform=$(jq --arg i $i --arg new_iim "$new_iim" --arg new_iimf "$new_iimf" '{
+        "id": (.[$i|tonumber].id),
+        "transform": (.[$i|tonumber] | del(.id) | .insight_id = $new_iim | .function_id = $new_iimf
+          | .publishes = (.publishes | map(.id))
+        )
+      }' <<< $old_transforms)
+
+      _exo_q 'mutation updateTransform($id: ID!, $transform: InsightTransformationInput) {
+        updateInsight(id: $id, transform: $transform) { id }
+      }' "$transform"
+    done
+  fi
+
+  if [[ $old_rules_len -gt 0 ]]; then
+    echo "Swapping $old_rules_len rules"
+    for ((i=0; i < old_rules_len; i++)); do
+      # select rule, and mutate for update
+      local rule=$(jq --arg i $i --arg new_iim "$new_iim" --arg new_iimf "$new_iimf" '{
+        "id": (.[$i|tonumber].id),
+        "rule": (.[$i|tonumber] | del(.id) | .insight_id = $new_iim | .function_id = $new_iimf)
+      }' <<< $old_rules)
+
+      _exo_q 'mutation updateRule($id: ID!, $rule: InsightRuleInput) {
+        updateInsightRule(id: $id, rule: $rule) { id }
+      }' "$rule"
+    done
+  fi
+
+  if [[ $old_actions_len -gt 0 ]]; then
+    echo "Swapping $old_actions_len actions"
+    for ((i=0; i < old_actions_len; i++)); do
+      # select action, and mutate for update
+      local action=$(jq --arg i $i --arg new_iim "$new_iim" --arg new_iimf "$new_iimf" '{
+        "id": (.[$i|tonumber].id),
+        "action": (.[$i|tonumber] | del(.id) | .insight_id = $new_iim | .function_id = $new_iimf)
+      }' <<< $old_actions)
+
+      _exo_q 'mutation updateAction($id: ID!, $action: InsightActionInput) {
+        updateInsightAction(id: $id, action: $action) { id }
+      }' "$action"
+    done
+  fi
+  echo "done"
 }
 
 #############################################################################
 # Devices
 
+function exo_hep_product_list {
+  cat <<EOS
+exo product list
+  List all products
+EOS
+}
 function exo_product_list {
   _exo_q 'query products { products { pid name isSimulator settings { fqdn } } }'
 }
 
+function exo_help_device_list {
+  cat <<EOS
+exo device list [<options>]
+  List devices
+  Options:
+    text=<string>          Filter by text in identity or lastip
+    group_id=<id>          Filter by group id
+    status=<string>        Filter by status (provisioned, reprovision, whitelisted, expired, locked, devmode)
+    health_status=<string> Filter by health status (healthy, timeout)
+    sort=<string>          Sort order (asc or desc)
+    single=<boolean>       Return a single device? (true or false)
+    onlyUnused=<boolean>   Return only unused devices (true or false)
+    product=<pid>          Filter by product id
+
+    includeAll             Include resources and tags
+    includeRes             Include resources
+    includeTags            Include tags
+
+    limit=<number>         Limit the number of results (default 50)
+    offset=<number>        Offset the results by this amount (default 0)
+EOS
+}
 function exo_device_list {
   local filters=$(options_to_json \
     text "^.+$" \
@@ -339,6 +661,24 @@ function exo_device_list {
   }' "$vars"
 }
 
+function exo_help_device_unclaimed {
+  cat <<EOS
+exo device unclaimed [<options>]
+  List unclaimed devices
+  Options:
+    text=<string>          Filter by text
+    group_id=<id>          Filter by group id
+    status=<string>        Filter by status (provisioned, reprovision, whitelisted, expired, locked, devmode)
+    health_status=<string> Filter by health status (healthy, timeout)
+    sort=<string>          Sort order (asc or desc)
+    single=<boolean>       Return a single device? (true or false)
+    onlyUnused=<boolean>   Return only unused devices (true or false)
+    product=<pid>          Filter by product id
+
+    limit=<number>         Limit the number of results (default 50)
+    offset=<number>        Offset the results by this amount (default 0)
+EOS
+}
 function exo_device_unclaimed {
   local filters=$(options_to_json \
     text "^.+$" \
@@ -369,6 +709,12 @@ function exo_device_unclaimed {
   }' "$vars"
 }
 
+function exo_help_device_set_group {
+  cat <<EOS
+exo device set-group (<pid.did>|<pid> <did>) <group id>
+  Set the group for a device
+EOS
+}
 function exo_device_set_group {
   # exo device set-group (<pid.did>|<pid> <did>) <group id>
   if [[ $1 == *.* ]]; then
@@ -387,6 +733,12 @@ function exo_device_set_group {
   }' "{\"id\":\"$id\",\"group_id\":\"$group_id\"}"
 }
 
+function exo_help_device_configIo {
+  cat <<EOS
+exo device configIo (<pid.did>|<pid> <did>)
+  Get the configIo state for a device
+EOS
+}
 function exo_device_configIo {
   # exo device configIo (<pid.did>|<pid> <did>)
   if [[ $1 == *.* ]]; then
@@ -402,11 +754,23 @@ function exo_device_configIo {
     jq '.data.device.state[] | select(.name == "config_io") | (.setString // .reportedString) | fromjson'
 }
 
+function exo_help_device_channels {
+  cat <<EOS
+exo device channels (<pid.did>|<pid> <did>)
+  Get the channels for a device
+EOS
+}
 function exo_device_channels {
   # exo device channels (<pid.did>|<pid> <did>)
   exo_device_configIo "$@" | jq '.channels | keys'
 }
 
+function exo_help_device_delete {
+  cat <<EOS
+exo device delete (<pid.did>|<pid> <did>)
+  Delete a device
+EOS
+}
 function exo_device_delete {
   # exo device delete (<pid.did>|<pid> <did>)
   if [[ $1 == *.* ]]; then
@@ -424,6 +788,16 @@ function exo_device_delete {
 #############################################################################
 # Internal Insight Modules (IIM)
 
+function exo_help_iim_list {
+  cat <<EOS
+exo iim list [<options>]
+  List internal insight modules (IIM)
+
+  Options:
+    limit=<number>       Limit the number of results (default 50)
+    offset=<number>      Offset the results by this amount (default 0)
+EOS
+}
 function exo_iim_list {
   # exo iim list [<options>]
   local pagination=$(options_to_json limit::number "^[0-9]+$" offset::number "^[0-9]+$")
@@ -436,6 +810,15 @@ function exo_iim_list {
     internalInsightModules(pagination: $pagination) {id name description} }' "$vars"
 }
 
+function exo_help_iim_create {
+  cat <<EOS
+exo iim create <name> [<options>]
+  Create a new internal insight module (IIM)
+
+  Options:
+    description=<string>     A description of the IIM
+EOS
+}
 function exo_iim_create {
   # exo iim create <name> [<options>]
   local name=${1:?Need IIM name}
@@ -451,6 +834,12 @@ function exo_iim_create {
   _exo_q 'mutation createIIM($iim: InsightInput) { createInternalInsightModule(insight: $iim) { id } }' "$vars"
 }
 
+function exo_help_iim_create_from {
+  cat <<EOS
+exo iim create from <iim file>
+  Create a new internal insight module (IIM) from a YAML file exported from ExoSense.
+EOS
+}
 function exo_iim_create_from {
   # exo iim create from <iim file>
   local iim_file=${1:?Need IIM file}
@@ -475,12 +864,26 @@ function exo_iim_create_from {
   done
 }
 
+function exo_help_iim_delete {
+  cat <<EOS
+exo iim delete (<iim id>)
+  Delete an internal insight module (IIM)
+EOS
+}
 function exo_iim_delete {
   # exo iim delete <iim id>
   local iim_id=${1:?Need IIM id}
   _exo_q 'mutation deleteIIM($id: ID!) { deleteInternalInsightModule(id: $id) }' "{\"id\":\"${iim_id}\"}"
 }
 
+function exo_help_iim_export {
+  cat <<EOS
+exo iim export <iim id>|--all [--builtins]
+  Export an internal insight module (IIM) as a YAML file.
+  If --all is given, export all IIMs.
+  If --builtins is given with --all, include built-in IIMs (Flowing, Transformer, Windowed).
+EOS
+}
 function exo_iim_export {
   # exo iim export <iim id>|--all [--builtins]
   if [[ -n $ucr_opts[all] ]]; then
@@ -507,6 +910,17 @@ function exo_iim_export {
   done
 }
 
+function exo_help_iimf_list {
+  cat <<EOS
+exo iimf list <iim id> [<options>]
+  List functions in an internal insight module (IIM)
+
+  Options:
+    includeTranslations=<boolean>  Include translations (true or false, default false)
+    limit=<number>                 Limit the number of results (default 50)
+    offset=<number>                Offset the results by this amount (default 0)
+EOS
+}
 function exo_iimf_list {
   # exo iimf list <iim id> [<options>]
   local iim_id=${1:?Need IIM id}
@@ -571,6 +985,13 @@ function exo_iimf_list {
   }' "$vars"
 }
 
+function exo_help_iimf_create_from {
+  cat <<EOS
+exo iimf create from <iim id> <function file> [<function id>]
+  Create a new function in an internal insight module (IIM) from a JSON file exported from ExoSense.
+  If no function id is given, a random one will be generated.
+EOS
+}
 function exo_iimf_create_from {
   # exo iimf create from <iim id> <function file> [<function id>]
   local iim_id=${1:?Need IIM id}
@@ -586,6 +1007,12 @@ function exo_iimf_create_from {
     createInternalInsightModuleFunction(insight_id: $iim_id, function: $newFunction) { id } }' "$vars"
 }
 
+function exo_help_iimf_delete {
+  cat <<EOS
+exo iimf delete <iim id> <function id>
+  Delete a function from an internal insight module (IIM)
+EOS
+}
 function exo_iimf_delete {
   # exo iimf delete <iim id> <function id>
   local iimf_id=${1:?Need IIM id}
@@ -595,8 +1022,95 @@ function exo_iimf_delete {
 }
 
 #############################################################################
+# Site Config
+
+function exo_site_config {
+
+  _exo_q 'query SiteConfig($id: ID, $group_id: ID, $exact: Boolean = false) {
+  siteConfig(id: $id, group_id: $group_id, exact: $exact) {
+    id
+    defaultLocale
+    defaultCountryCode
+    group {
+      id
+      name
+    }
+    primary
+    secondary
+    accent
+    favicon
+    logo
+    idp
+    alias
+    applicationName
+    landingPage
+    supportUrl
+    tieredSidenav {
+      navigationColor
+      navigationHighlight
+      subColor
+      subHighlight
+      navigationText
+      darkMode
+    }
+    icons {
+      from
+      to
+    }
+    gdpr {
+      terms
+      policy
+    }
+    assetMarkers {
+      type
+      abbreviateFromLeft
+    }
+    subtheming
+    exportConfig {
+      print
+      pdf
+      image
+      csv
+      json
+    }
+    qrConfig {
+      type
+      enabled
+      domain
+      params
+    }
+    showBreadcrumbs
+  }
+}'
+}
+
+function exo_site_config_set {
+  #!!! Not implemented, just collecting the bits.
+  # mostly is one giant JSON object.  And from the web-app, looks like it doesn't support partial updates. 
+  # So to be useful, This needs to be a read-modify-write 
+#  _exo_q 'mutation ($id: String!, $siteConfig: SiteConfigInput) {
+#   updateSiteConfig(id: $id, siteConfig: $siteConfig) {
+#     accent
+#     defaultCountryCode
+#     __typename
+#   }
+# }'
+}
+
+#############################################################################
 # Syncing
 
+function exo_help_rmstar {
+  cat <<EOS
+exo rmstar [--deleteDevices] <group id to delete>
+  Given a group id, delete everything in it.
+
+  If you run this by accident, it can be very destructive.
+
+  By default, devices are not deleted, but moved to the root group since we cannot unclaim devices.
+  If --deleteDevices is given, devices will be deleted.
+EOS
+}
 function exo_rmstar {
   # exo rmstar [--deleteDevices] <group id to delete>
   # given a group id, delete everything in it
@@ -655,6 +1169,16 @@ function exo_rmstar {
   rm -f $groups_file
 }
 
+# !!! This is actually a pull, not a sync.
+# not sure if I should rename things, or if should work towards being a sync.
+function exo_help_sync_down {
+  cat <<EOS
+exo sync down [<root group id>]
+  Sync down the entire group structure to the current directory.
+  If no root group id is given, the root group will be used.
+  This only works on things in the group tree, other things like IIMF, ConditionPolicies, etc are not included.
+EOS
+}
 function exo_sync_down {
   # Sync down the entire group structure
   # This only works on things in the group tree, other things like IIMF, ConditionPolicies, etc are not included
@@ -721,6 +1245,18 @@ function exo_sync_down {
 # ?If no group_id is given and the root of the directory isn't also root group, it will create a new group in root.
 # For starts, will just always create a new group in the specificed one (or root)
 # will look later into logic to uplift initial as root later
+# XXX: this is actually a push; it only creates.  Would like it to be a sync eventually.
+function exo_help_sync_up {
+  cat <<EOS
+exo sync up [<root directory>] [<root group id>]
+  Sync up the entire group structure from the given directory to ExoSense.
+  If no root directory is given, the current directory will be used.
+  If no root group id is given, the root group will be used.
+  This only works on things in the group tree, other things like IIMF, ConditionPolicies, etc are not included.
+
+  Currently this always creates a new group in the given group (or root group if none given).
+EOS
+}
 function exo_sync_up {
   local root_dir=${1:?Need root directory}
   local root_id=${2:-$(exo_group_root)}
@@ -733,6 +1269,7 @@ function exo_sync_up {
     local parent_id=$2
     local group_name=${group_dir:t}
     echo "Syncing group '$group_name' to $parent_id"
+    # TODO: check if group already exists, if so, update it instead of creating a new one.
     local group_id=$(exo_group_create_from $parent_id "$group_dir/group_info.json" | jq -r '.data.createGroup.id')
 
     # Sync devices
@@ -747,6 +1284,7 @@ function exo_sync_up {
       # Because of this, the device might not be visible to assets in this group.
       # If you `sync down` and then `sync up` in the same ExoSense to duplicate a sub-tree for example.
       # To make that work, you need to move the devices to a common parent group.
+      # TODO: warn if device is already in a group? Or if in a non-parent group (unreachable)?
     done
 
     # Sync users
@@ -755,6 +1293,8 @@ function exo_sync_up {
     # Sync assets
     for asset in $group_dir/*.yaml(N); do
     	ucr_opts[group]=$group_id
+      # This always creates a new asset, instead of trying to find a match and update it.
+      # For our use cases, this is preferable.
       exo_asset_create $asset
     done
 

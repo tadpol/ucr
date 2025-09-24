@@ -46,6 +46,30 @@ ucr_biz_url_pattern="^https?://[\.A-Za-z0-9:-]+"
 ##############################################################################
 # Define the tasks for this tool
 
+function ucr_help {
+  cat <<EOF
+ucr <task> [<args…>] [--opts…] [KEY=VALUE…]
+  CLI to the guts of Murano; if you know, then you know. Otherwise not for you.
+
+  'ucr help <task>' or 'ucr <task> --help' for more info on a specific task.
+  'ucr tasks [<prefix filter>]' to see what tasks are implemented.
+  'ucr state' to check ENVs, ARGs, and options.
+
+  Options, key-values, and arguments can be interwoven as make sense.
+
+  Key-Values:
+    These get prefixed with UCR_, upcased, and then become environment variables.
+
+  Environment variables:
+    UCR_SID       Solution Identifier
+    UCR_BID       Business Identifier
+    UCR_API_URL   URL to API endpoint
+    UCR_DIS_URL   URL to call runner
+    UCR_BIZ_URL   URL to call business logic
+EOF
+}
+
+
 function ucr_help_dump_script {
   cat <<EOF
 ucr dump script

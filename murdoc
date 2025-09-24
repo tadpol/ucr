@@ -224,6 +224,32 @@ function murdoc_mongo {
   fi
 }
 
+# Get envs for service, reshape into envs for cqlsh, load them and call cqlsh.
+function murdoc_cqlsh {
+  local ens=($(murdoc_env $1 | grep CASS_))
+  shift
+  for r in $ens; do
+    if [[ "$r" =~ "([a-zA-Z0-9_]+)=(.*)" ]]; then
+      typeset -g -x ${match[1]}=${match[2]}
+    fi
+  done
+
+  local info=$(murdoc_jump_hop_on $CASS_HOSTS ${CASS_PORT:-9042})
+  # info is in the form of <local_host>:<local_port>,<jump_host>:<jump_pid>
+  typeset -g -x CASS_HOSTS=${${info%%,*}%:*}
+  typeset -g -x CASS_PORT=${${info%%,*}#*:}
+  local jump_host=${${info#*,}%:*}
+  local jump_pid=${${info#*,}#*:}
+
+  cqlsh --username="$CASS_SUPER_USER" \
+    --password="$CASS_SUPER_PASS" \
+    --keyspace="${CASS_ENV}" \
+    "${CASS_HOSTS}" "${CASS_PORT}"
+
+  murdoc_jump_hop_off ${jump_host} ${jump_pid}
+}
+
+
 # Get envs for service, reshape into envs for psql, load them and call psql.
 function murdoc_psql {
   local cmd=${ucr_opts[cmd]:-"psql"}

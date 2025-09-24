@@ -17,6 +17,33 @@ fi
 ##############################################################################
 # Define the tasks for this tool
 
+function worldbuilder_help {
+  cat <<EOS
+worldbuilder <task> [<args>]
+  Tooling to in-mass build many repos and inject the results into VMs.
+
+  'worldbuilder help <task>' or 'worldbuilder <task> --help' for more info on a specific task.
+  'worldbuilder tasks [<prefix filter>]' to see what tasks are implemented.
+  'worldbuilder state' to check ENVs, ARGs, and options.
+
+  Options, key-values, and arguments can be interwoven as make sense.
+
+  Key-Values:
+    These get prefixed with WORLDBUILDER_, upcased, and then become environment variables.
+
+  Environment variables:
+    WORLDBUILDER_FILE
+      The worldbuilder file to use. Defaults to 'wb.ini' in the current directory.
+      'worldbuilder 
+    WORLDBUILDER_DOCKER_TOOL
+      The docker tool to use. Defaults to 'docker'.
+    WORLDBUILDER_HOST
+      A space separated list of hosts to inject images into. Each host is expanded with 'worldbuilder host expand'.
+    WORLDBUILDER_SKIPLIST
+      A comma separated list of sections to skip when using 'worldbuilder foreach' or 'worldbuilder all'.
+EOS
+}
+
 function worldbuilder_help_sections {
   cat <<EOF
 worldbuilder sections
@@ -43,64 +70,45 @@ function worldbuilder_namer {
   worldbuilder_sections | fzf -1 --no-multi --query "${1:-m}"
 }
 
-function worldbuilder_example_branch {
-  # write out an example ini
-  # Needs better example data
+function worldbuilder_help_example {
+  cat <<EOS
+worldbuilder example
+  Prints an example worldbuilder file section.
+EOS
+}
+function worldbuilder_example {
   cat <<EOE
 [name-of-thing]
+# The name of the section is up to you, but should be unique.
+
+# These keys are required in each section:
 repo=git repo url (ssh or https)
 commit=branch_to_checkout
+# commit can be a branch, tag, commit hash or empty for HEAD.
 dir=relative/directory/path/to/thing
 image=container/name:thing
-type=docker|zip
+# image is the name of the docker image to build, or the name of the zip file to create.
 
+# These keys are optional:
+platform=linux/arm64|linux/amd64
+# platform is only used for docker builds, and defaults to linux/arm64
+# This value is passed to 'docker build --platform=…'
+type=docker|build
+# type defaults to docker, but can be set to 'build' for things that aren't docker images.
+# If set to 'build', the build_cmd key must be set to a command that
+build_cmd=command_to_build_thing
+# build_cmd is only used if type is 'build'.
+# This command should create a zip file at the path specified by the image key.
+# build_cmd defaults to zipping up the entire directory.
+build_pre_cmd=command_to_run_before_build
+# build_pre_cmd is run before the build_cmd, if specified.
+# This runs for all types.
+build_post_cmd=command_to_run_after_build
+# build_post_cmd is run after the build_cmd, if specified.
+# This runs for all types.
+dest=/path/to/extract/thing
+# When injecting a 'build' type, this is the path to extract the zip file to.
 EOE
-}
-
-# Creates a new worldbuilder file based on the current one, updating the commit hash for each section.
-# The new commits are pulled from a release tag on github.
-# FIXME: broken: review and maybe just drop. i don't use this at all
-function worldbuilder_pull_next_release {
-  # Needs a tag/release; pulls the txt assets from github; lifts the commit hashes for each repo
-  # and writes out an ini file based on the currently loaded one.
-  want_envs WORLDBUILDER_FILE "^.+$"
-  local tmpDir=$(mktemp -d)
-  # echo "Pulling to $tmpDir" >&2
-  local tag=${1:?Need a tag to pull}
-  local repo=${2:-exosite/murano}
-  # TODO: If tag is /^head$/i then output every commit line as a blank value.
-
-  # get the release assets
-  gh release download -R "$repo" "$tag" -D "$tmpDir" -p '*.txt' --clobber
-
-  # get the commit hashes
-  # Since that's all we're after, we can use an associative array to store them.
-  typeset -A commits
-  local section
-  while read -r line; do
-    if [[ "$line" =~ "^([^:]*):"  ]]; then
-      section=${match[1]}
-    fi
-    if [[ "$line" =~ "^commit=(.+)$"  ]]; then
-      commits[${section}]=${match[1]}
-    fi
-  done < "$tmpDir"/murano-*.txt
-
-  # Now read the ini file and write out a new one with the commits
-  section=""
-  while read -r line; do
-    if [[ "$line" =~ "^\[([^]]*)\]"  ]]; then 
-      section=${match[1]}
-      echo "$line"
-    elif [[ "$line" =~ "^commit=(.*)$" && -n "$commits[(Ie)$section]" ]]; then
-      # if commit line and we have a commit, write it out
-      echo "commit=${commits[${section}]}"
-    else
-      echo "$line"
-    fi
-  done < "$WORLDBUILDER_FILE"
-
-  rm -rf "$tmpDir"
 }
 
 function worldbuilder_help_clone {
@@ -245,8 +253,8 @@ worldbuilder build <section> [--commit <commit>] [--head]
   _images_<worldbuilder_file_name> in the current directory.
 
   The --head option will build the current HEAD of the repo.
-
   The --commit option will build the specified commit or branch.
+  These override the commit specified in the worldbuilder file.
 EOF
 }
 # Builds an image from a section in the worldbuilder file.
@@ -254,7 +262,7 @@ EOF
 function worldbuilder_build {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
-  local docker_tool=${WORLDBUILDER_DOCKER_TOOL:-nerdctl.lima}
+  local docker_tool=${WORLDBUILDER_DOCKER_TOOL:-docker} # or 'nerdctl' or 'nerdctl.lima'
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   [[ ! -v "type" ]] && typeset -g -x type=docker
   [[ ! -v "platform" ]] && typeset -g -x platform=linux/arm64

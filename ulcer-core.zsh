@@ -322,6 +322,46 @@ function ${(L)argv0}_state {
   done
 }
 
+function ${(L)argv0}_help_config_edit {
+  echo "${(L)argv0} config edit"
+  echo "  Edit the configuration file in your \$EDITOR or \$VISUAL"
+  echo "  The config file is located at $config_location"
+}
+function ${(L)argv0}_config_edit {
+  local editor=${VISUAL:-${EDITOR:-vi}}
+  [[ -n "${ucr_opts[editor]}" ]] && editor=${ucr_opts[editor]}
+  $editor "$config_location"
+}
+
+function ${(L)argv0}_help_config_show {
+  echo "${(L)argv0} config show"
+  echo "  Show the configuration file."
+  echo "  The config file is located at $config_location"
+}
+function ${(L)argv0}_config_show {
+  local pager=${PAGER:-less}
+  $pager "$config_location"
+}
+
+function ${(L)argv0}_help_config_where {
+  echo "${(L)argv0} config where"
+  echo "  Show the location of the configuration file."
+}
+function ${(L)argv0}_config_where {
+  echo "$config_location"
+}
+function ${(L)argv0}_help_config_sections {
+  echo "${(L)argv0} config sections"
+  echo "  List the sections in the configuration file."
+}
+function ${(L)argv0}_config_sections {
+  if [[ -f "$config_location" ]]; then
+    grep "^\[.*\]" "$config_location" | sed -e 's/^\[\(.*\)\]$/\1/' | sort
+  else
+    echo "(no config file found at $config_location)" >&2
+  fi
+}
+
 ##############################################################################
 if [[ $ZSH_EVAL_CONTEXT == 'toplevel' ]]; then
   # Display a message explaining that you should not call this script and 
@@ -330,8 +370,8 @@ if [[ $ZSH_EVAL_CONTEXT == 'toplevel' ]]; then
   echo "You should source this file in your script and then define functions to run." >&2
   echo "Instead try one of these:" >&2
   echo "  ucr tasks" >&2
-  echo "  jmq tasks" >&2
-  echo "  exo tasks" >&2
+  echo "  jmq --help" >&2
+  echo "  exo --help" >&2
   echo "  murdoc tasks" >&2
   echo "  worldbuilder tasks" >&2
   exit 1

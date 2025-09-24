@@ -2,7 +2,9 @@
   "cSpell.words": [
     "auth",
     "buildx",
+    "CASS",
     "cmdline",
+    "cqlsh",
     "devmode",
     "dtog",
     "duckdb",

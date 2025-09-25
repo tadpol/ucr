@@ -47,10 +47,7 @@ As ucr is just a schell script, the heavy lifting is done by other programs.  Fo
 
 #### ucr
 
-- [op](https://developer.1password.com/docs/cli)
-- `security` but usage is untested/broken.
-
-ucr tries to find login info using either `op`, `security` (on macos), or a builtin `.netrc` parser.
+Just the ones above.
 
 #### Jmq
 
@@ -86,7 +83,7 @@ ucr tries to find login info using either `op`, `security` (on macos), or a buil
 
 ## Usage
 
-There is unfortunately no built in help.
+Built in help is evolving.  `--help` can be added to a majority of the tasks.
 
 `$scriptname <options>|<args>|<keys>`
 

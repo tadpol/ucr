@@ -741,29 +741,6 @@ function ucr_tsdb_query {
   _dis_call tsdb query "$req"
 }
 
-function ucr_help_tsdb_recent {
-  cat <<EOF
-ucr tsdb recent <tag name> <metrics>… [<tag name>@<tag values>…]
-  Get the most recent data points for the given metrics and tag values.
-  Metric names are just args, tags are <tag name>@<tag value>
-EOF
-}
-function ucr_tsdb_recent {
-  # recent <tag name> <metrics>… @<tag values>… 
-  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local tag_name=${1:?Need tag name}
-  shift
-  [[ $# == 0 ]] && echo "Missing metrics and tag values" >&2 && exit 2
-
-  local req=$(jq -n -c --arg tn "${tag_name}" '{
-    "metrics": ($ARGS.positional | map(select(. | startswith("@") | not))),
-    "tag_name": $tn,
-    "tag_values": ($ARGS.positional | map(select(. | startswith("@"))) | map(split("@") | .[1] )),  
-  }' --args -- "${@}")
-
-  _dis_call tsdb recent "$req"
-}
-
 function ucr_help_tsdb_list_tags {
   cat <<EOF
 ucr tsdb list tags
@@ -1072,7 +1049,6 @@ function ucr_keystore_cmd {
   _dis_call keystore command "$req"
 }
 
-
 ####################
 
 function ucr_help_content_info {
@@ -1277,7 +1253,7 @@ function ucr_device_write {
   val=$(jq -r '@uri' <<< $val)
   v_curl -s https://${d_host}/onep:v1/stack/alias \
     -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
-    -H "X-Exosite-CIK: ${cik}" \
+    -H "Authorization: token ${cik}" \
     -d "${res}=${val}"
 }
 
@@ -1310,7 +1286,7 @@ function ucr_device_record {
   val=$(jq -r '@uri' <<< $val)
   v_curl -s https://${d_host}/onep:v1/stack/record \
     -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
-    -H "X-Exosite-CIK: ${cik}" \
+    -H "Authorization: token ${cik}" \
     -d "alias=${res}&${ts}=${val}"
 }
 
@@ -1388,6 +1364,43 @@ function ucr_device_activate {
   v_curl -s https://${d_host}/provision/activate \
     -d "id=${did}" \
     -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8'
+}
+
+function ucr_help_device_content_upload {
+  cat <<EOS
+ucr device content upload <did> <file> [<tag name>@<tag value> ...]
+  Uploads a file as content associated with the device.
+  Looks up the CIK via ENV as "UCR_CIK_\${did}", or uses UCR_CIK if that is not set.
+  Tags are optional key/value pairs to associate with the content.
+EOS
+}
+function ucr_device_content_upload {
+  local did=${1:?Need device id}
+  local fid=${2:?Need file to upload}
+  shift 2
+  local tags=''
+  if [[ $# > 0 ]]; then
+    tags=$(jq -n '$ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) | from_entries | @uri' --args -- "$@")
+    tags="?tags=$tags"
+  fi
+
+  [[ ! -f "$fid" ]] && echo "File to upload not found: $fid" >&2 && return 2
+  local details=$(ucr_service_details device2)
+  local d_host=$(jq -r .parameters.fqdn <<< $details)
+  local cik=$UCR_CIK
+  # if UCR_CIK_<did> is set, use that instead
+  local cik_var="UCR_CIK_${did}"
+  if [[ -n "${(P)${cik_var}}" ]]; then
+    cik=${(P)${cik_var}}
+  fi
+
+  local mimetype=$(file --mime-type -b "$fid")
+  [[ -z "$mimetype" ]] && mimetype="application/octet-stream"
+
+  v_curl -X PUT -s https://${d_host}/onep:v1/content/${fid}${tags} \
+    -H "Content-Type: $mimetype" \
+    -H "Authorization: token ${cik}" \
+    --data-binary @$fid
 }
 
 ##############################################################################

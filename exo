@@ -436,6 +436,36 @@ function exo_template_list {
   _exo_q 'query templates { templates2 { id name currentVersion } }'
 }
 
+function exo_help_asset_swap_device {
+  cat <<EOS
+exo asset swap device <asset id> <old product_id.device_id> <new product_id.device_id>
+  Swap a device an asset is associated with.
+
+  It does NOT check to see if the devices are compatible, that‘s your job.
+EOS
+}
+function exo_asset_swap_device {
+  local asset_id=${1:?Need asset id}
+  local from_pid=${2:?Need old product_id.device_id}
+  local to_pid=${3:?Need new product_id.device_id}
+
+  local vars=$(jq -n -c --arg assetId "$asset_id" --arg fromDeviceId "$from_pid" --arg toDeviceId "$to_pid" '{
+    assetId: $assetId,
+    fromDeviceId: $fromDeviceId,
+    toDeviceId: $toDeviceId
+  }')
+
+  _exo_q 'mutation assetChangeDevice($assetId: ID!, $fromDeviceId: ID!, $toDeviceId: ID!) {
+    assetChangeDevice(
+      assetId: $assetId
+      fromDeviceId: $fromDeviceId
+      toDeviceId: $toDeviceId
+    ) {
+      id
+    }
+  }' "$vars" 'assetChangeDevice'
+}
+
 function exo_help_asset_swap_iimf {
   cat <<EOS
 exo asset swap iimf <asset id> <old iim> <old iimf id> <new iim> <new iimf id>

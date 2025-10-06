@@ -377,7 +377,7 @@ function murdoc_jump_hop_on {
       docker_cmd=(sudo docker)
     fi
     if [[ -n "${ucr_opts[jump]}" ]]; then
-      docker_cmd=(ssh "${MURDOC_SSH_OPTS}" $jump_host $docker_cmd)
+      docker_cmd=(ssh "$jump_host" "$docker_cmd")
     fi
     local target_ip=$(${=docker_cmd} inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $target_host)
     local network=$(${=docker_cmd} container inspect -f '{{range $net,$v := .NetworkSettings.Networks}}{{printf "%s" $net}}{{end}}' $target_host)
@@ -396,7 +396,7 @@ function murdoc_jump_hop_on {
       local target_port=${local_port}
     fi
     # Create the ssh tunnel to the jump host
-    ssh -NT -L ${local_port}:${target_host}:${target_port} "${=MURDOC_SSH_OPTS}" ${jump_host} &
+    ssh -NT -L ${local_port}:${target_host}:${target_port} "${jump_host}" &
 
     typeset -g -x jump_pid=$!
     typeset -g -x jump_host=${jump_host}
@@ -423,7 +423,7 @@ function murdoc_jump_hop_off {
       docker_cmd=(sudo docker)
     fi
     if [[ -n "${ucr_opts[jump]}" ]]; then
-      docker_cmd=(ssh "${MURDOC_SSH_OPTS}" $jump_host $docker_cmd)
+      docker_cmd=(ssh $jump_host $docker_cmd)
     fi
     ${=docker_cmd} container rm -f hopper-murdoc > /dev/null
   fi

@@ -194,8 +194,7 @@ EOF
 }
 function ucr_solution_info {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID} \
-    -H 'Content-Type: application/json'
+  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}
 }
 
 function ucr_help_solution_list {
@@ -288,9 +287,10 @@ ucr services
 EOF
 }
 function ucr_services {
+  # ??? add more optional query parameters?
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig \
-    -H 'Content-Type: application/json'
+  local q=$(jq -c -n -r '{"solution_id": $ENV.UCR_SID} | @uri')
+  v_curl -s ${UCR_API_URL}/serviceconfig\?query=$q
 }
 
 function ucr_help_service_usage {
@@ -302,7 +302,7 @@ EOF
 function ucr_service_usage {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${(L)service}/info
+  v_curl -s ${UCR_API_URL}/serviceconfig/${UCR_SID}_${(L)service}/info
 }
 
 function ucr_help_service_details {
@@ -314,7 +314,7 @@ EOF
 function ucr_service_details {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${(L)service}
+  v_curl -s ${UCR_API_URL}/serviceconfig/${UCR_SID}_${(L)service}
 }
 
 function ucr_help_service_add {
@@ -325,13 +325,10 @@ ucr service add <service>
 EOF
 }
 function ucr_service_add {
-  # ucr service add <service>
-  # Note, that the <service> can be the name of an IoT Connector to link
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
   local req=$(jq -n -c --arg service "${(L)service}" --arg sid "$UCR_SID" '{"solution_id": $sid, "service": $service}')
-  # erm.  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${(L)service} \
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig \
+  v_curl -s ${UCR_API_URL}/serviceconfig \
     -H 'Content-Type: application/json' \
     -d "$req"
 }
@@ -344,11 +341,9 @@ ucr service delete <service>
 EOF
 }
 function ucr_service_delete {
-  # ucr service delete <service>
-  # Note, that the <service> can be the name of an IoT Connector to unlink
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/serviceconfig/${(L)service} \
+  v_curl -s ${UCR_API_URL}/serviceconfig/${UCR_SID}_${(L)service} \
     -H 'Content-Type: application/json' \
     -X DELETE
 }
@@ -365,7 +360,7 @@ EOF
 function ucr_service_schema {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/service/${(L)service}/schema
+  v_curl -s ${UCR_API_URL}/service/${UCR_SID}_${(L)service}/schema
 }
 
 function ucr_help_service_installed {
@@ -404,6 +399,8 @@ function ucr_service_installed {
 
   v_curl -s ${UCR_API_URL}/service\?${q}
 }
+
+# TODO: install and uninstall
 
 ####################
 

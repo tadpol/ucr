@@ -360,7 +360,7 @@ EOF
 function ucr_service_schema {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
-  v_curl -s ${UCR_API_URL}/service/${UCR_SID}_${(L)service}/schema
+  v_curl -s ${UCR_API_URL}/service/${(L)service}/schema
 }
 
 function ucr_help_service_installed {
@@ -401,6 +401,12 @@ function ucr_service_installed {
 }
 
 # TODO: install and uninstall
+
+function ucr_service_get {
+  local service=${1:?Need service name}
+
+  v_curl -s ${UCR_API_URL}/service/${(L)service}
+}
 
 ####################
 
@@ -521,7 +527,7 @@ ucr sc <service> [--listops] [--no-cache] [--in=FILE] <operation> [--listparams]
   Use --listops to list the operations for the service.
   Use --listparams to list the parameters for the operation.
   Use --no-cache to force fetching the operations from the API.
-  Use --in=FILE to read parameters from a JSON file instead of command line options.
+  Use --in=FILE to read parameters from a JSON file in addition to command line options.
   If FILE is '-', read from STDIN.
 
   Options are mapped to parameters by name, and validated against the parameter pattern if provided.
@@ -531,69 +537,112 @@ ucr sc <service> [--listops] [--no-cache] [--in=FILE] <operation> [--listparams]
 EOF
 }
 function ucr_sc {
-  # ucr sc <service> [--listops] [--no-cache] [--in=FILE] <operation> [--listparams] [options]
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_DIS_URL "$ucr_dis_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-
   local service=${1:?Need service name}
 
   # Check cache for service operations, if missing or older than a week, fetch new.
   # If --no-cache, always fetch new.
-  local cache_file="${XDG_CACHE_HOME:-$HOME/.cache}/ucr/${service}-operations.json"
+  local cache_file="${XDG_CACHE_HOME:-$HOME/.cache}/ucr/${service}-schema.json"
   mkdir -p ${cache_file:h}
   # If it doesn't exist, cache is false
   [[ -f $cache_file ]] || ucr_opts[cache]=false
   # If it exists, then check the age (this will set ucr_opts[cache] to false if too old)
   [[ -f $cache_file && -z "${cache_file}(N,md-7)" ]] && ucr_opts[cache]=false
   if [[ ${ucr_opts[cache]} == "false" ]]; then
-    v_curl -s ${UCR_API_URL}/service/${(L)service} \
-      | jq .operations > $cache_file
+    v_curl -s ${UCR_API_URL}/service/${(L)service}/schema \
+      | jq > $cache_file
   fi
+  # Cache_file is a JSON formatted OpenAPI v2 schema for the service
+  # v3 isn't supported by Murano yet.
+  # Assumptions are made
 
   # --listops will just list the operations for the service
+  # output is 'xdh $operationId' where the xdh only appear when respective flag is true
   if [[ -n "$ucr_opts[listops]" ]]; then
-    jq -r 'keys[]' $cache_file
+    jq '.paths
+      | to_entries[]
+      | .value
+      | to_entries[]
+      | .value
+      | select(type == "object")
+      | {
+        operationId: .operationId,
+        hidden: (.["x-exosite-hidden"] // false),
+        restricted: (.["x-exosite-restricted"] // false),
+        deprecated: (.["x-exosite-deprecated"] // false)
+      }' $cache_file | mlr --ijson --opprint put '
+        if ($hidden == true) { $h = "h" } else { $h = " " }
+        if ($restricted == true) { $x = "x" } else { $x = " " }
+        if ($deprecated == true) { $d = "d" } else { $d = " " }
+        $flags = $x . $d . $h' \
+        then cut -o -f flags,operationId \
+        then sort -f operationId
     return
   fi
 
   local operation=${2:?Need operation name}
   shift 2
-  # Get the operation details
-  local operation_details=$(jq --arg op "$operation" '.[$op]' $cache_file)
-  if [[ -z "$operation_details" || "$operation_details" == "null" ]]; then
+  # Check that the operation exists
+  local have_op=$(jq --arg opId "$operation" '.paths
+      | to_entries[]
+      | .value
+      | to_entries[]
+      | .value
+      | select(type == "object" and .operationId == $opId)' $cache_file)
+  if [[ -z "$have_op" ]]; then
     echo "Operation `$operation` not found for service $service" >&2
     exit 3
   fi
 
-	# Want to map some parameters to options, and some to keys, and some to positional
-  # For now, all are options. (not sure of a good generic way to decide which should be positional)
-  # Only doing minimal validation here, since pegapi will do full.
-  # Now, while this is very OpenAPI like, pegasus calling squashes all the parameters into a single object.
-  # So we only need to look at the first item in parameters. It will be an object, whose keys are the parameters.
-  # _sigh_; if one of these has a `x-exosite-from` in its value, then we need to use that for the key instead of the original key.
+  # Get the parameters for the operation
+  # Note: This does not fully follow all $refs, instead only following the minimum needed to get the param_patterns built.
+  local operation_parameters=$(jq --arg opId "$operation" 'def deref($d):
+    if has("$ref") then ((.["$ref"] | split("/") | .[1:]) as $p | $d | getpath($p)) else . end;
+  . as $doc
+  | .paths
+  | . as $paths
+  | paths(type=="object" and .operationId == $opId)
+  | reduce .[] as $item ( []; . + [ (.[-1] // []) + [$item] ] )
+  | map(. + ["parameters"])
+  | reduce .[] as $p ([]; . + ($paths | getpath($p)) )
+  | map(
+    deref($doc)
+    | select(has("x-exosite-restricted") | not)
+    | if has("in") and .in == "body" then
+        .schema
+        | deref($doc)
+        | .properties // {} | to_entries[] | {"name": .key} + (.value // {} | deref($doc))
+      else
+        .
+      end
+  )' $cache_file)
+
+  [[ -z "${ucr_opts[debug]}" ]] || echo "Operation parameters: $operation_parameters" >&2
+
   local opt_req='{}'
-  if [[ $(jq '.parameters|length' <<< $operation_details) > 0 ]]; then
-    local param_patterns=($(jq -r '.parameters[0].properties | to_entries[] |
-    	.value.type |= if (.|type) == "array" then
+  if [[ $(jq 'length' <<< $operation_parameters) > 0 ]]; then
+    local param_patterns=($(jq -r '.[] |
+    	.type |= if (.|type) == "array" then
         "object"
       else
         .
       end |
-      .rex = if (.value|has("pattern")) then
-        .value.pattern
-      elif (.value | has("enum")) then
-        "^(" + (.value.enum|join("|")) + ")$"
-      elif .value.type == "string" then
+      .rex = if (.|has("pattern")) then
+        .pattern
+      elif (.| has("enum")) then
+        "^(" + (.enum|join("|")) + ")$"
+      elif .type == "string" then
         "^.*$"
-      elif .value.type == "integer" then
+      elif .type == "integer" then
         "^[0-9]+$"
-      elif .value.type == "number" then
+      elif .type == "number" then
         "^[0-9]+(\\.[0-9]+)?$"
-      elif .value.type == "boolean" then
+      elif .type == "boolean" then
         "^(true|1|yes|ok|y|t|false|no|n|f)$"
       else
         "^.*$"
       end |
-      "\(if (.value | has("x-exosite-from")) then .value."x-exosite-from" else .key end)::\(.value.type)", "\(.rex)"' <<< $operation_details))
+      "\(if (. | has("x-exosite-from")) then .["x-exosite-from"] else .name end)::\(.type)", "\(.rex)"' <<< $operation_parameters))
     # echo "= = $param_patterns" >&2
     [[ -n "$param_patterns" ]] && opt_req=$( options_to_json "${(@)param_patterns}")
     [[ -z "$opt_req" ]] && exit 4
@@ -601,7 +650,7 @@ function ucr_sc {
 
   # --listparams will just list the paramaters for the operation
   if [[ -n "$ucr_opts[listparams]" ]]; then
-    if [[ $(jq '.parameters|length' <<< $operation_details) > 0 ]]; then
+    if [[ $(jq 'length' <<< $operation_parameters) > 0 ]]; then
       for (( i=1; i<=$#param_patterns; i+=2 )); do
         local key=${param_patterns[i]%%::*}
         local type=${param_patterns[i]#*::}

@@ -608,6 +608,8 @@ function ucr_sc {
 
   # Get the parameters for the operation
   # Note: This does not fully follow all $refs, instead only following the minimum needed to get the param_patterns built.
+  # Currently does not handle patternProperties
+  # Cannot handle both additionalProperties=true and defined properties in body parameters.
   local operation_parameters=$(jq --arg opId "$operation" 'def deref($d):
     if has("$ref") then ((.["$ref"] | split("/") | .[1:]) as $p | $d | getpath($p)) else . end;
   . as $doc
@@ -621,9 +623,14 @@ function ucr_sc {
     deref($doc)
     | select(has("x-exosite-restricted") | not)
     | if has("in") and .in == "body" then
-        .schema
+    		.name as $name
+        | .schema
         | deref($doc)
-        | .properties // {} | to_entries[] | {"name": .key} + (.value // {} | deref($doc))
+        | if has("additionalProperties") and (.additionalProperties == true) and (has("properties") | not) then
+          . + {"name": $name}
+        else
+          .properties // {} | to_entries[] | {"name": .key} + (.value // {} | deref($doc))
+        end
       else
         .
       end

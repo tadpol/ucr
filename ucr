@@ -378,7 +378,7 @@ ucr service installed [<options>]
 EOF
 }
 function ucr_service_installed {
-  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_API_URL "$ucr_api_url_pattern"
   local opt_req=$(
     options_to_json \
     limit "[1-9][0-9]*" \
@@ -526,12 +526,13 @@ ucr sc <service> [--listops] [--no-cache] [--in=FILE] <operation> [--listparams]
   Call a service operation.
   Use --listops to list the operations for the service.
   Use --listparams to list the parameters for the operation.
-  Use --no-cache to force fetching the operations from the API.
+  Use --no-cache to force fetching the operations from the API. (still updates cache)
   Use --in=FILE to read parameters from a JSON file in addition to command line options.
   If FILE is '-', read from STDIN.
 
   Options are mapped to parameters by name, and validated against the parameter pattern if provided.
   All parameters are passed as options, none are positional.
+  If both options and --in are given, the options override any values in the file.
 
   Note: This is a generic interface, and does not provide any special handling for specific services or operations.
 EOF
@@ -549,8 +550,19 @@ function ucr_sc {
   # If it exists, then check the age (this will set ucr_opts[cache] to false if too old)
   [[ -f $cache_file && -z "${cache_file}(N,md-7)" ]] && ucr_opts[cache]=false
   if [[ ${ucr_opts[cache]} == "false" ]]; then
+    local ecf=$(mktemp -t sc-cache.ecf.XXXXXX)
     v_curl -s ${UCR_API_URL}/service/${(L)service}/schema \
-      | jq > $cache_file
+      --write-out "%output{>>${ecf}}%{exitcode},%{http_code},%{errormsg}" \
+      -o $cache_file
+      local ec http_code errormsg
+      IFS=',' read -r ec http_code errormsg < $ecf
+      if [[ $ec != "0" || $http_code != "200" ]]; then
+        echo "Error fetching schema for service $service: $http_code $errormsg" >&2
+        rm -f $cache_file
+        rm -f $ecf
+        exit 2
+      fi
+      rm -f $ecf
   fi
   # Cache_file is a JSON formatted OpenAPI v2 schema for the service
   # v3 isn't supported by Murano yet.

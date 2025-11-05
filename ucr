@@ -400,8 +400,45 @@ function ucr_service_installed {
   v_curl -s ${UCR_API_URL}/service\?${q}
 }
 
-# TODO: install and uninstall
+function ucr_service_install {
+  cat <<EOF
+ucr service install <service> <url>
+  Install a service from a swagger/openapi url
+  Once installed, the service can be added to solutions.
+EOF
+}
+function ucr_service_install {
+  want_envs UCR_API_URL "$ucr_api_url_pattern"
+  local service=${1:?Need service name}
+  local url=${2:?Need url}
 
+  local req=$(jq -n -c --arg service "${(L)service}" --arg url "$url" '{"alias": $service, "url": $url}')
+  v_curl -s ${UCR_API_URL}/service \
+    -H 'Content-Type: application/json' \
+    -d "$req"
+}
+
+function ucr_help_service_uninstall {
+  cat <<EOF 
+ucr service uninstall <service>
+  Uninstall a service
+EOF
+}
+function ucr_service_uninstall {
+  want_envs UCR_API_URL "$ucr_api_url_pattern"
+  local service=${1:?Need service name}
+
+  v_curl -s ${UCR_API_URL}/service/${(L)service} \
+    -H 'Content-Type: application/json' \
+    -X DELETE
+}
+
+function ucr_help_service_get {
+  cat <<EOF
+ucr service get <service>
+  Get computed info for a service
+EOF
+}
 function ucr_service_get {
   local service=${1:?Need service name}
 

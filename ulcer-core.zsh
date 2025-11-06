@@ -61,6 +61,19 @@ load_config .env
 # Parsed options are saved here for everyone to look at
 typeset -A ucr_opts
 
+# Load any options set as ENV variables
+# These are ENV variables named like <TOOL>_OPTION_<optionname>
+function load_option_envs {
+  local prefix=${1:-${(U)argv0}_OPTION_}
+  local key
+  for key in ${(k)parameters}; do
+    if [[ "$key" =~ "^${prefix}(.+)" ]]; then
+      local opt=${(L)match[1]}
+      typeset -g ucr_opts[$opt]=${(P)key}
+    fi
+  done
+}
+
 # Scan arguments and pull out options and envs, then find the function to call, and call it.
 # This is most of what ucr is.
 function task_runner {
@@ -115,6 +128,8 @@ function task_runner {
       leftovers[${#leftovers}+1]=$arg
     fi
   done
+
+  load_option_envs
 
   # Second pass, look for functions
   local func_list=(${(ok)functions[(I)${(L)argv0}_*]})

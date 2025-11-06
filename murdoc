@@ -106,7 +106,7 @@ function murdoc_inspect_on {
   local cmd="docker inspect ${args[@]}"
 
   # replace 'docker' with 'sudo docker' in all occurrences if --sudo
-  if [[ -n "${ucr_opts[sudo]}" || -n "$MURDOC_OPTS_SUDO" ]]; then
+  if [[ -n "${ucr_opts[sudo]}" ]]; then
     cmd=${cmd//docker/sudo docker}
   fi
   
@@ -373,7 +373,7 @@ function murdoc_jump_hop_on {
 
   if [[ -n "${ucr_opts[hop]}" ]]; then
     local docker_cmd=(docker)
-    if [[ -n "${ucr_opts[sudo]}" || -n "$MURDOC_OPTS_SUDO" ]]; then
+    if [[ -n "${ucr_opts[sudo]}" ]]; then
       docker_cmd=(sudo docker)
     fi
     if [[ -n "${ucr_opts[jump]}" ]]; then
@@ -419,7 +419,7 @@ function murdoc_jump_hop_off {
 
   if [[ -n "${ucr_opts[hop]}" ]]; then
     local docker_cmd=(docker)
-    if [[ -n "${ucr_opts[sudo]}" || -n "$MURDOC_OPTS_SUDO" ]]; then
+    if [[ -n "${ucr_opts[sudo]}" ]]; then
       docker_cmd=(sudo docker)
     fi
     if [[ -n "${ucr_opts[jump]}" ]]; then

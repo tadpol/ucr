@@ -221,12 +221,22 @@ function ucr_solution_list {
 
 function ucr_help_solution_create {
   cat <<EOF
-ucr solution create SID=<solution id> [BID=<business id>] [--m2] [--file=<template name>] [--github=<url>] [--exchange=<ids>]
+ucr solution create SID=<solution id> [BID=<business id>] [<options>] domain
   Creates a new solution
+
+  Key-Values:
+    SID       Solution Identifier (required)
+    BID       Business Identifier (optional)
+  Options:  
+    --m2                Create an M2 Connector type solution instead of application
+    --exchange=<ids>    Comma separated list of exchange ids to apply
+
+    --file=<template>   Use a specific template name
+    --github=<url>      Use a github repo as the template source
+    --zip=<url>         Use a zip file url as the template source
 EOF
 }
 function ucr_solution_create {
-  # ucr solution create SID=<new id> [BID=<business id>] [--m2] [--file=<template name>] [--github=<url>] [--exchange=<ids>]
   want_envs UCR_API_URL "$ucr_api_url_pattern" \
     UCR_SID "^[a-zA-Z0-9]+$" \
     UCR_BID "^[a-zA-Z0-9]+$"
@@ -237,10 +247,13 @@ function ucr_solution_create {
   fi
   local template='{}'
   if [[ -n "$ucr_opts[file]" ]]; then
-    template='{"source":{ "from": "file", "path": "/tmp/custom-solution-templates/'"$ucr_opts[file]"'"}}'
+    template='{"source":{ "from": "file", "path": "/tmp/solution-templates/'"$ucr_opts[file]"'"}}'
   fi
   if [[ -n "$ucr_opts[github]" ]]; then
     template='{"source":{ "from": "github", "url": "'"$ucr_opts[github]"'"}}'
+  fi
+  if [[ -n "$ucr_opts[zip]" ]]; then
+    template='{"source":{ "from": "zip", "url": "'"$ucr_opts[zip]"'"}}'
   fi
   local exchangelist=''
   if [[ -n "$ucr_opts[exchange]" ]]; then
@@ -448,23 +461,59 @@ function ucr_service_get {
 ####################
 
 function ucr_help_template_update {
-  cat <<EOF
-ucr template update [<github repo url>]
-  Request a solution to update to the project on Github.
-  If url omitted, then will try to build one from current directory git remote
-EOF
+  ucr_help_solution_update
 }
 function ucr_template_update {
+  ucr_solution_update "$@"
+}
+
+function ucr_help_solution_update {
+  cat <<EOF
+ucr solution update [--file=<template name>] [--github=[<url>]] [--zip=<url>] [--force]
+  Request a solution to update to the template served at the given location.
+
+  If one of --file, --github, or --zip is not specified, will use the current template.
+  Otherwise it will set the new template for the solution and try to update.
+
+  Options:
+    --file=<template>   Use a specific template name
+    --github=<url>      Use a github repo as the template source, or repo from current directory
+    --zip=<url>         Use a zip file url as the template source
+    --force             Force update even if no changes detected
+EOF
+}
+function ucr_solution_update {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local repo_url
-  if [[ $# > 0 ]]; then
-    repo_url=$1
-  else
-    repo_url=https://github.com/${${$(git remote get-url origin)#git@github.com:}%%.git}
-    repo_url+="/tree/$(git rev-parse --abbrev-ref HEAD)"
+
+  # so, if param, use that, but from is blank; Will that work or break things?
+  # Needs testing
+	local from=''
+  local repo_url=$1
+  if [[ -n "$ucr_opts[file]" ]]; then
+    from='file'
+    repo_url='file:///tmp/solution-templates/'"$ucr_opts[file]"
+  elif [[ -n "$ucr_opts[github]" ]]; then
+    from='github'
+    if [[ "$ucr_opts[github]" == "true" ]]; then
+      # ??? do a git push first to ensure up to date?
+      repo_url=https://github.com/${${$(git remote get-url origin)#git@github.com:}%%.git}
+      repo_url+="/tree/$(git rev-parse --abbrev-ref HEAD)"
+    else
+      repo_url="$ucr_opts[github]"
+    fi
+  elif [[ -n "$ucr_opts[zip]" ]]; then
+    from='zip'
+    repo_url="$ucr_opts[zip]"
   fi
-  local req=$(jq -n -c --arg url "$repo_url" '{"url": $url}')
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/update \
+
+  local req=$(jq -n -c --arg from "$from" --arg url "$repo_url" '{"from": $from, "url": $url}')
+  [[ -z "$from" && -z "$repo_url" ]] && req='{}'  # use current template
+
+  local forced=''
+  if [[ -n "$ucr_opts[force]" ]]; then
+    forced='?force=true'
+  fi
+  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/update${forced} \
     -H 'Content-Type: application/json' \
     -d "$req"
 }

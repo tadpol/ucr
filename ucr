@@ -33,7 +33,7 @@ function get_token {
       exit 2
     fi
     # echo "X: $req" >&2
-    export UCR_TOKEN=$(curl -s https://${UCR_BIZ_URL}/token/ -H 'Content-Type: application/json' -d "$req" | jq -r .token)
+    export UCR_TOKEN=$(curl -s ${UCR_BIZ_URL}/token/ -H 'Content-Type: application/json' -d "$req" | jq -r .token)
   fi
 }
 

@@ -95,7 +95,9 @@ platform=linux/arm64|linux/amd64
 # This value is passed to 'docker build --platform=…'
 type=docker|build
 # type defaults to docker, but can be set to 'build' for things that aren't docker images.
-# If set to 'build', the build_cmd key must be set to a command that
+# If set to 'build', the build_cmd key must be set
+upload_type=docker|build|rclone
+# upload_type defaults to type, but can be overridden to specify how to upload the image.
 build_cmd=command_to_build_thing
 # build_cmd is only used if type is 'build'.
 # This command should create a zip file at the path specified by the image key.
@@ -108,6 +110,8 @@ build_post_cmd=command_to_run_after_build
 # This runs for all types.
 dest=/path/to/extract/thing
 # When injecting a 'build' type, this is the path to extract the zip file to.
+# When using 'docker' type, this is ignored.
+# When using 'rclone' upload_type, this is the destination path that follows the rclone alias.
 EOE
 }
 
@@ -392,10 +396,10 @@ function worldbuilder_inject {
   want_envs WORLDBUILDER_HOST "^[-@._A-Za-z0-9:]+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
+
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
-  if [[ ! -v "type" ]]; then
-    type=docker
-  fi
+  [[ -v "upload_type" ]] && type=$upload_type
+  [[ ! -v "type" ]] && type=docker
   want_envs image "^.+$" type "^.+$"
 
   function upload_one {
@@ -417,6 +421,13 @@ function worldbuilder_inject {
       ssh ${=ssh_cfg} ${host} -- sudo mkdir -p ${${dest:-/tmp/images/barf}:h}
       ssh ${=ssh_cfg} ${host} -- sudo unzip -q -o /tmp/images/${${image/%:*}:t}.zip -d ${dest:-/tmp/images/barf}
       ssh ${=ssh_cfg} ${host} -- rm /tmp/images/${${image/%:*}:t}.zip
+    elif [[ "$type" == "rclone" ]]; then
+      set -e
+      # Requires rclone to be setup with an alias matching the host part of the host string.
+      local tmpdir=$(mktemp -d)
+      unzip -q -o ${imagesDir}/${${image/%:*}:t}.zip -d ${tmpdir}
+      rclone sync --progress ${tmpdir}/ ${host//:/-}:${dest} --header-upload "cache-control:no-cache"
+      rm -rf ${tmpdir}
     else
       echo "Unknown type: $type" >&2
       exit 1

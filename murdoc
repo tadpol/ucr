@@ -109,7 +109,7 @@ function murdoc_inspect_on {
   if [[ -n "${ucr_opts[sudo]}" ]]; then
     cmd=${cmd//docker/sudo docker}
   fi
-  
+
   # if node is localhost, then don't ssh
   if [[ $node = "localhost" ]]; then
     eval $cmd
@@ -134,24 +134,56 @@ function murdoc_inspect {
 }
 
 function murdoc_status {
-  filter='sort_by(.Name)|.[]|[.Name, .State.Status, .State.Health.Status]|@csv'
-  if [[ -n "${ucr_opts[long]}" || -n "${ucr_opts[l]}" ]]; then
-    murdoc_inspect | jq -r "${filter}" | \
-      mlr --icsv --opprint --implicit-csv-header --barred --right label container,status,health \
-      then sub -f container / '' \
-      then put '$container !=~ "^(mur|sys)_" {$container = "sys_" . $container}' \
-      then sort -f container
+  # A smarter way of grouping the containers.
+  # Right now, just a hardcoded list of regex to group name.  Should it be all in config?
+  #
+  # group_map is an array of pairs of regex,groupname. The last match wins, so more specific regexes
+  # should be later in the list.
+  local group_map='[
+    ["^sys_", "system"],
+    ["^mur_([^_]+)_", "\\1"],
+    ["^mur_(?:[^_]+)$", "service"],
+    ["_service$", "service"],
+    ["_m[oe][^_]+$", "pegasus"]
+  ]'
+  local mapper='
+    def replace_backrefs($match):
+      . as $template |
+      reduce range(0; $match.captures | length) as $i (
+        $template;
+        split("\\" + ($i + 1 | tostring)) | join($match.captures[$i].string // "")
+      );
 
-  else
-    murdoc_inspect | jq -r "${filter}" | \
-      mlr --icsv --hi --opprint label container,status,health \
-        then sub -f container / '' \
-        then put '$container !=~ "^(mur|sys)_" {$container = "sys_" . $container}' \
-        then put -q 'a=splita($container, "_"); $top=a[1]; $sub=a[2];
-          $top == "sys" { @mur_t["sys"]+=1; @mur_h["sys"]+= $health=="healthy" ? 1 : 0; }
-          $top == "mur" { @mur_t[$sub]+=1; @mur_h[$sub]+=$health=="healthy" ? 1 : 0; }
-          end { emit @mur_t; emit @mur_h; }'
-  fi
+    sort_by(.Name)
+    | .[]
+    | {
+        container: (.Name | ltrimstr("/")),
+        status: .State.Status,
+        health: .State.Health.Status,
+        group: (
+          [(.Name | ltrimstr("/")) as $container |
+            $group_map[] as $entry |
+            select($container | test($entry[0])) |
+            (
+              ($container | match($entry[0])) as $match |
+              $entry[1] | replace_backrefs($match)
+            )
+          ]
+          | if length > 0 then .[-1] else "other" end
+        )
+      }
+  '
+
+  murdoc_inspect | jq --argjson group_map "$group_map" "${mapper}" | \
+    if [[ -n "${ucr_opts[long]}" || -n "${ucr_opts[l]}" ]]; then
+      mlr --ijson --opprint --barred --right  \
+      sort -f group,container
+    else
+      # This is basically a pivot on the group column
+      mlr --ijson --hi --opprint \
+      put -q '@mur_t[$group]+=1; @mur_h[$group]+=$health=="healthy" ? 1 : 0;
+        end { emit @mur_t; emit @mur_h; }'
+    fi
 }
 
 function murdoc_names {
@@ -348,7 +380,7 @@ function murdoc_redis {
 }
 
 function murdoc_jump_hop_on {
-  # murdoc jump hop on <target host> <target port> 
+  # murdoc jump hop on <target host> <target port>
   local target_host=${1:?Missing Target Host}
   local target_port=${2:?Missing Target Port}
 

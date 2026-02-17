@@ -558,7 +558,7 @@ function ucr_service_installed {
   v_curl -s ${UCR_API_URL}/service\?${q}
 }
 
-function ucr_service_install {
+function ucr_help_service_install {
   cat <<EOF
 ucr service install <service> <url>
   Install a service from a swagger/openapi url

@@ -411,7 +411,8 @@ function ucr_service_set {
     noMergeParam::boolean "^(true|1|yes|ok|y|t|false|no|n|f)$" \
     noParamOverload::string "^([a-zA-Z0-9_-]+(,[a-zA-Z0-9_-]+)*)$|^true$"
   )
-  [[ -n "$query_opts" ]] && query_opts="?$(jq -r 'to_entries|map("\(.key)=\(.value)")|join("&")' <<< $query_opts)"
+  [[ -z "${ucr_opts[debug]}" ]] || echo "Query: $query_opts" >&2
+  query_opts=$(jq -r 'if length > 0 then "?" + (to_entries|map("\(.key)=\(.value)")|join("&")) else "" end' <<< $query_opts)
 
   # Fetch schema for service.
   local cache_file
@@ -481,6 +482,7 @@ function ucr_service_set {
     opt_req=$(jq --argjson opt "$opt_req" '. * $opt' $file)
   fi
 
+  opt_req=$(jq '{"parameters": . }' <<< $opt_req)
   [[ -z "${ucr_opts[debug]}" ]] || echo "Req: $opt_req" >&2
 
   v_curl -s ${UCR_API_URL}/serviceconfig/${UCR_SID}_${(L)service}${query_opts} \
@@ -530,7 +532,7 @@ ucr service schema <service>
 EOF
 }
 function ucr_service_schema {
-  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  want_envs UCR_API_URL "$ucr_api_url_pattern"
   local service=${1:?Need service name}
   v_curl -s ${UCR_API_URL}/service/${(L)service}/schema
 }
@@ -861,7 +863,7 @@ function ucr_sc {
   if [[ $(jq 'length' <<< $operation_parameters) > 0 ]]; then
     local param_patterns=($(jq -r '.[] |
     	.type |= if (.|type) == "array" then
-        "object"
+        if any(. == "string") then "string" else  "object" end
       else
         .
       end |

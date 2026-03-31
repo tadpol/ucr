@@ -36,7 +36,7 @@ worldbuilder <task> [<args>]
   Environment variables:
     WORLDBUILDER_FILE
       The worldbuilder file to use. Defaults to 'wb.ini' in the current directory.
-      'worldbuilder 
+      'worldbuilder
     WORLDBUILDER_DOCKER_TOOL
       The docker tool to use. Defaults to 'docker'.
     WORLDBUILDER_HOST
@@ -56,7 +56,7 @@ function worldbuilder_sections {
   want_envs WORLDBUILDER_FILE "^.+$"
 
   while read -r line; do
-    if [[ "$line" =~ "^\[([^]]*)\]"  ]]; then 
+    if [[ "$line" =~ "^\[([^]]*)\]"  ]]; then
       echo ${match[1]}
     fi
   done < "$WORLDBUILDER_FILE"

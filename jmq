@@ -111,7 +111,7 @@ function jmq_branch {
 
 function jmq_help_next {
   cat <<EOF
-jmq next [<ticket>] 
+jmq next [<ticket>]
   Move a ticket to the next state.
   When there are multiple transitions, a menu is shown to select which to take.
   If no ticket is given, then the current branch is used.
@@ -175,7 +175,7 @@ function jmq_move {
 
   local inp_id=$(jq --arg nme "$state" '.transitions[]|select(.name==$nme)|.id' <<< $transitions)
   if [[ -z "$inp_id" ]]; then
-    echo "Cannot directly transition to $state" 
+    echo "Cannot directly transition to $state"
     exit
   fi
 
@@ -291,7 +291,7 @@ function jmq_info {
   v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
-    -d "$req" | jq -r '.issues[] | 
+    -d "$req" | jq -r '.issues[] |
       "        Key: \(.key)
     Summary: \(.fields.summary)
    Reporter: \(.fields.reporter.displayName)
@@ -328,7 +328,7 @@ function jmq_status {
   map({"key": .[0].fields.status.name, "value": map([("- "+.key), .fields.summary] | @tsv) | join("\n")}) |
   map(select([.key] | inside($sts))) |
   map([(.key+":"), .value] | join("\n")) |
-  flatten | 
+  flatten |
   join("\n\n")'
 }
 
@@ -394,7 +394,7 @@ function jmq_files {
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req" | \
-    jq -r '.issues[] | .fields.attachment[] | [.filename, .mimeType, .content]|@tsv' | 
+    jq -r '.issues[] | .fields.attachment[] | [.filename, .mimeType, .content]|@tsv' |
     mlr --itsv --implicit-csv-header --opprint label name,type,link
 }
 
@@ -451,7 +451,7 @@ function jmq_labels {
     fi
   done
   local jql="key in (${(j:,:)keys})"
-  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "labels"] }') 
+  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "labels"] }')
   local res=$(v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
@@ -468,7 +468,7 @@ function jmq_labels {
 
 function jmq_help_label_add {
   cat <<EOF
-jmq label add <label> [<tickets…>] 
+jmq label add <label> [<tickets…>]
   Add a label to one or more tickets. If no tickets are given, then the current branch is used.
 EOF
 }
@@ -487,7 +487,7 @@ function jmq_label_add {
       keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
     fi
   done
-  
+
   local req=$(jq -n -c --arg label "$label" '{"update":{"labels":[{"add":$label}]}}')
 
   for key in $keys; do
@@ -500,7 +500,7 @@ function jmq_label_add {
 
 function jmq_help_label_del {
   cat <<EOF
-jmq label del <label> [<tickets…>] 
+jmq label del <label> [<tickets…>]
   Remove a label from one or more tickets. If no tickets are given, then the current branch is used.
 EOF
 }
@@ -519,7 +519,7 @@ function jmq_label_del {
       keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
     fi
   done
-  
+
   local req=$(jq -n -c --arg label "$label" '{"update":{"labels":[{"remove":$label}]}}')
 
   for key in $keys; do
@@ -555,14 +555,14 @@ function jmq_links {
   local line_opts_json='{"color":"red"}'
 
   local jql="key in (${(j:,:)keys})"
-  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks", "fixVersions", "labels"] }') 
+  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks", "fixVersions", "labels"] }')
   local res=$(v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
     -d "$req"
     )
   local map=$( jq -r '[ .issues[] | .key as $issueKey |
-      .fields.issuelinks[] | 
+      .fields.issuelinks[] |
       if has("inwardIssue") then
         [.type.name, .inwardIssue.key, $issueKey]
       else
@@ -575,25 +575,25 @@ function jmq_links {
     echo "digraph {"
     # Subgraphs for releases
     jq -r '[ .issues[] | .key as $issueKey |
-        .fields.fixVersions[] | 
+        .fields.fixVersions[] |
         {"key":$issueKey, "value": .name}
       ] | reduce .[] as {$key,$value} ({}; .[$value] += [$key]) |
-      to_entries | 
-      map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n" + 
+      to_entries |
+      map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n" +
         (.value | map(" \""+.+"\";") | join("\n")) + "\n}"
         ) | join("\n")' <<< $res
 
     # Subgraphs for labels (filter for specific labels?)
     jq -r '[.issues[] | {"key":.key, "value":.fields.labels[]}] | reduce .[] as {$key,$value} ({}; .[$value] += [$key]) |
-      to_entries | map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n style=dashed;\n" + 
+      to_entries | map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n style=dashed;\n" +
         (.value | map(" \""+.+"\";") | join("\n")) + "\n}"
         ) | join("\n")' <<< $res
-  
+
     # Links
-    jq -r --argjson lineopts "$line_opts_json" '.[] | 
+    jq -r --argjson lineopts "$line_opts_json" '.[] |
       "\"\(.[1])\" -> \"\(.[2])\" [" +
       (($lineopts) | to_entries | map("\(.key)=\(.value)") | join(", ")) +
-      "]"' <<< $map 
+      "]"' <<< $map
     echo "}"
   else
     # as a table thru miller
@@ -647,7 +647,7 @@ function jmq_prc {
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   local into=${2:-stable}
   local msg=$(jmq_pr $key || git log --oneline -1 --no-decorate)
-  
+
   gh pr create \
     -B $into \
     -t "$msg" \

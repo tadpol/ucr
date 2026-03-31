@@ -10,11 +10,48 @@ Ucr was an acronym for something, but I've long forgotten what it was.  I call i
 
 ## Installation
 
-Ulcer is now split into core and task files.  Everything gets installed into your PATH.
+All tools are distributed together in a single archive (`ucr-tools-vX.Y.Z.tar.gz`) that includes `ucr`, `jmq`, `murdoc`, `worldbuilder`, and the shared `ulcer-core.zsh` library.
 
-A `bin/` folder in your home directory is a good place. (and add that to your PATH if not already)
+### Using mise
 
-To install all of the tools here into `$HOME/bin/`:
+[mise](https://mise.jdx.dev) can install tools directly from GitHub releases:
+
+```sh
+mise use -g "github:tadpol/ucr"
+```
+
+Or add it to your `mise.toml`:
+
+```toml
+[tools]
+"github:tadpol/ucr" = "latest"
+```
+
+mise will extract all tools into its install directory and put them on your PATH.
+
+### Using curl or wget
+
+Download and extract the archive from the [releases page](https://github.com/tadpol/ucr/releases) into a directory on your PATH. For example, into `$HOME/bin/`:
+
+```sh
+# with curl
+curl -fsSL https://github.com/tadpol/ucr/releases/latest/download/ucr-tools-v1.0.0.tar.gz \
+  | tar -xz -C $HOME/bin/
+
+# with wget
+wget -qO- https://github.com/tadpol/ucr/releases/latest/download/ucr-tools-v1.0.0.tar.gz \
+  | tar -xz -C $HOME/bin/
+```
+
+Replace `v1.0.0` with the desired version from the [releases page](https://github.com/tadpol/ucr/releases).
+
+### From source
+
+Clone the repo and install all tools into a directory on your PATH.
+
+A `bin/` folder in your home directory is a good place. (add it to your PATH if not already)
+
+To install all of the tools into `$HOME/bin/`:
 
 ```zsh
 for e in *(*N); do
@@ -22,7 +59,7 @@ for e in *(*N); do
 done
 ```
 
-Or you want to always run the version here:
+Or symlink them so you always run the version in the repo:
 
 ```zsh
 for e in *(*N); do
@@ -32,7 +69,7 @@ done
 
 ### Dependencies
 
-As ucr is just a schell script, the heavy lifting is done by other programs.  Following is brief list of programs used; not all tasks use all of the programs listed.
+As ucr is just a shell script, the heavy lifting is done by other programs.  Following is brief list of programs used; not all tasks use all of the programs listed.
 
 #### Used by all
 
@@ -95,7 +132,7 @@ Long options can be boolean true `--term` or false `--no-term`.  Long options ca
 
 Keys are an argument with a `=`, such as `sid=qwerty`.  These are converted into environment variables.  The key name is converted to uppercase and prefixed with the script name. (So `sid=qwerty` gets exported as `${(U)scriptname}_SID=qwerty`)
 
-After all options and keys have been removed from the argument list, the remaining args are used to search for a function.  This is done by prefixing the script name and adding `_` between args.  If a function is not found, the last argument is dropped and searched again. If nothing is found after trying all subpatterns, then the function `${scriptname}_function_not_found` is called.
+After all options and keys have been removed from the argument list, the remaining args are used to search for a function.  This is done by prefixing the script name and adding `_` between args.  If a function is not found, the last argument is dropped and searched again. If nothing is found after trying all sub-patterns, then the function `${scriptname}_function_not_found` is called.
 
 `$scriptname tasks` is useful to see what tasks have been defined.
 

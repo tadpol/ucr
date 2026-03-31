@@ -6,8 +6,10 @@
 argv0=${${0:t}:r}
 
 # Load the ulcer-core.zsh
-ulcer_core=$(whence -p ulcer-core.zsh)
-if [[ -n $ulcer_core ]]; then
+SCRIPT_DIR=${0:A:h}
+if [[ -f "${SCRIPT_DIR}/ulcer-core.zsh" ]]; then
+	source "${SCRIPT_DIR}/ulcer-core.zsh"
+elif ulcer_core=$(whence -p ulcer-core.zsh) && [[ -n $ulcer_core ]]; then
 	source $ulcer_core
 else
 	echo "Error: ulcer-core.zsh not found"

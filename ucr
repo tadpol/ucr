@@ -341,6 +341,20 @@ function ucr_services {
   v_curl -s ${UCR_API_URL}/serviceconfig\?query=$q
 }
 
+function ucr_help_service_using {
+  cat <<EOF
+ucr service using <service>
+  List all service configs using a service.
+  Good for finding which solutions have added a service.
+EOF
+}
+function ucr_service_using {
+  local service=${1:?Need service name}
+  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  local q=$(jq -c -n -r --arg S "$service" '{"service": $S} | @uri')
+  v_curl -s ${UCR_API_URL}/serviceconfig\?query=$q
+}
+
 function ucr_help_service_usage {
   cat <<EOF
 ucr service usage <service>
@@ -872,7 +886,7 @@ function ucr_sc {
     [[ -z "$opt_req" ]] && exit 4
   fi
 
-  # --listparams will just list the paramaters for the operation
+  # --listparams will just list the parameters for the operation
   if [[ -n "$ucr_opts[listparams]" ]]; then
     if [[ $(jq 'length' <<< $operation_parameters) > 0 ]]; then
       for (( i=1; i<=$#param_patterns; i+=2 )); do
@@ -998,7 +1012,7 @@ function ucr_tsdb_query {
     mode "(merge|split)" \
     fill "(null|previous|none|[1-9][0-9]*|~s:.+)" \
     order_by "(desc|asc)" \
-    aggregate "((avg|min|max|count|sum),?)+"
+    aggregate::array "((avg|min|max|count|sum),?)+"
   )
   [[ -z "$opt_req" ]] && exit 4
 

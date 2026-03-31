@@ -1495,6 +1495,22 @@ function ucr_device_state {
 # This sets via the cloud side API.
 # function ucr_device_state_set { }
 
+function ucr_help_device_timestamp {
+  cat <<EOF
+ucr device timestamp <did>
+  Reads the current timestamp via the external HTTP API.
+
+  Most useful to make sure you can actually connect to the external API.
+EOF
+}
+function ucr_device_timestamp {
+  # This reads via the external HTTP API.
+  local details=$(ucr_service_details device2)
+  local d_host=$(jq -r .parameters.fqdn <<< $details)
+
+  v_curl -s https://${d_host}/timestamp
+}
+
 function ucr_help_device_write {
   cat <<EOF
 ucr device write <did> <resource> <value>

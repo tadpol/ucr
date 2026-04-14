@@ -381,6 +381,16 @@ function ucr_service_details {
   v_curl -s ${UCR_API_URL}/serviceconfig/${UCR_SID}_${(L)service}
 }
 
+function ucr_help_service_get {
+  cat <<EOF
+ucr service get <service>
+  Get the configuration for a service in a solution.
+EOF
+}
+function ucr_service_get {
+  ucr_service_details "$1" | jq '.parameters'
+}
+
 function ucr_help_service_set {
   cat <<EOF
 ucr service set <service> [--listparams] [--no-cache] [--in=FILE] [options]
@@ -467,7 +477,7 @@ function ucr_service_set {
         local key=${param_patterns[i]%%::*}
         local type=${param_patterns[i]#*::}
         local rex=${param_patterns[i+1]}
-        echo " --$key=<${type} by $rex>"
+        print -r " --$key=<${type} by $rex>"
       done
       return
     else
@@ -609,13 +619,13 @@ function ucr_service_uninstall {
     -X DELETE
 }
 
-function ucr_help_service_get {
+function ucr_help_service_info {
   cat <<EOF
-ucr service get <service>
+ucr service info <service>
   Get computed info for a service
 EOF
 }
-function ucr_service_get {
+function ucr_service_info {
   local service=${1:?Need service name}
 
   v_curl -s ${UCR_API_URL}/service/${(L)service}

@@ -291,7 +291,20 @@ function jmq_info {
   v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
-    -d "$req" | jq -r '.issues[] |
+    -d "$req" | jq -r '
+    # Recursively extract text content from an ADF node
+    def adf_text:
+      if .type == "text" then .text
+      elif .type == "hardBreak" then "\n"
+      elif .type == "paragraph" then ([.content[]? | adf_text] | join("")) + "\n"
+      elif .type == "heading" then ([.content[]? | adf_text] | join("")) + "\n"
+      elif .type == "bulletList" then [.content[]? | adf_text] | join("")
+      elif .type == "listItem" then "• " + ([.content[]? | adf_text] | join(""))
+      elif .type == "codeBlock" then "```\n" + ([.content[]? | adf_text] | join("")) + "```\n"
+      elif .content? then [.content[] | adf_text] | join("")
+      else ""
+      end;
+    .issues[] |
       "        Key: \(.key)
     Summary: \(.fields.summary)
    Reporter: \(.fields.reporter.displayName)
@@ -300,7 +313,7 @@ function jmq_info {
        Type: \(.fields.issuetype.name) (\(.fields.priority.name))
      Status: \(.fields.status.name) (Resolution: \(.fields.resolution.name))
     Watches: \(.fields.watches.watchCount)  Votes: \(.fields.votes.votes)
-Description: \(.fields.description)"'
+Description: \(.fields.description | adf_text)"'
 }
 
 function jmq_help_status {
@@ -689,6 +702,38 @@ function jmq_merge {
 
   [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
   [[ -n "$needs_stash" ]] && git stash pop
+}
+
+function jmq_help_comments {
+  cat <<EOF
+jmq comments [<ticket>]
+  List the comments for a ticket. If no ticket is given, then the current branch is used.
+EOF
+}
+function jmq_comments {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+
+  v_curl -s "https://${JMQ_HOST}/rest/api/3/issue/${(U)key}/comment" \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' | \
+    jq -r '
+    def adf_text:
+      if .type == "text" then .text
+      elif .type == "hardBreak" then "\n"
+      elif .type == "paragraph" then ([.content[]? | adf_text] | join("")) + "\n"
+      elif .type == "heading" then ([.content[]? | adf_text] | join("")) + "\n"
+      elif .type == "bulletList" then [.content[]? | adf_text] | join("")
+      elif .type == "listItem" then "• " + ([.content[]? | adf_text] | join(""))
+      elif .type == "codeBlock" then "```\n" + ([.content[]? | adf_text] | join("")) + "```\n"
+      elif .content? then [.content[] | adf_text] | join("")
+      else ""
+      end;
+    .comments[] |
+      "---\n  Author: \(.author.displayName)\n Created: \(.created[:19])\n\(.body | adf_text)"'
 }
 
 ##############################################################################

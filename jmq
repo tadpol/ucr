@@ -285,6 +285,7 @@ function jmq_info {
     votes
     watches
     customfield_10820 # Tester
+    customfield_12537 # Validation Nodes (rich text)
     )
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
@@ -295,9 +296,10 @@ function jmq_info {
     # Recursively extract text content from an ADF node
     def adf_text:
       if .type == "text" then .text
+      elif .type == "mention" then .attrs.text
       elif .type == "hardBreak" then "\n"
       elif .type == "paragraph" then ([.content[]? | adf_text] | join("")) + "\n"
-      elif .type == "heading" then ([.content[]? | adf_text] | join("")) + "\n"
+      elif .type == "heading" then ("#" * (.attrs.level // 1)) + " " + ([.content[]? | adf_text] | join("")) + "\n"
       elif .type == "bulletList" then [.content[]? | adf_text] | join("")
       elif .type == "listItem" then "• " + ([.content[]? | adf_text] | join(""))
       elif .type == "codeBlock" then "```\n" + ([.content[]? | adf_text] | join("")) + "```\n"
@@ -313,7 +315,8 @@ function jmq_info {
        Type: \(.fields.issuetype.name) (\(.fields.priority.name))
      Status: \(.fields.status.name) (Resolution: \(.fields.resolution.name))
     Watches: \(.fields.watches.watchCount)  Votes: \(.fields.votes.votes)
-Description: \(.fields.description | adf_text)"'
+Description: \(.fields.description | adf_text)
+ Validation: \(.fields.customfield_12537 | adf_text)"'
 }
 
 function jmq_help_status {
@@ -723,9 +726,10 @@ function jmq_comments {
     jq -r '
     def adf_text:
       if .type == "text" then .text
+      elif .type == "mention" then .attrs.text
       elif .type == "hardBreak" then "\n"
       elif .type == "paragraph" then ([.content[]? | adf_text] | join("")) + "\n"
-      elif .type == "heading" then ([.content[]? | adf_text] | join("")) + "\n"
+      elif .type == "heading" then ("#" * (.attrs.level // 1)) + " " + ([.content[]? | adf_text] | join("")) + "\n"
       elif .type == "bulletList" then [.content[]? | adf_text] | join("")
       elif .type == "listItem" then "• " + ([.content[]? | adf_text] | join(""))
       elif .type == "codeBlock" then "```\n" + ([.content[]? | adf_text] | join("")) + "```\n"
@@ -734,6 +738,27 @@ function jmq_comments {
       end;
     .comments[] |
       "---\n  Author: \(.author.displayName)\n Created: \(.created[:19])\n\(.body | adf_text)"'
+}
+
+function jmq_help_full {
+  cat <<EOF
+jmq full <issue> - Display full issue information
+
+Display all available information for an issue. This includes:
+- Issue Information (e.g., summary, description)
+- Links (e.g., sub-tasks, related issues)
+- Comments
+EOF
+}
+function jmq_full {
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]];then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  jmq_info "$key"
+  jmq_links "$key"
+  jmq_comments "$key"
 }
 
 ##############################################################################

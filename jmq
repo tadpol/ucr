@@ -8,12 +8,12 @@ argv0=${${0:t}:r}
 # Load the ulcer-core.zsh
 SCRIPT_DIR=${0:A:h}
 if [[ -f "${SCRIPT_DIR}/ulcer-core.zsh" ]]; then
-	source "${SCRIPT_DIR}/ulcer-core.zsh"
+  source "${SCRIPT_DIR}/ulcer-core.zsh"
 elif ulcer_core=$(whence -p ulcer-core.zsh) && [[ -n $ulcer_core ]]; then
-	source $ulcer_core
+  source $ulcer_core
 else
-	echo "Error: ulcer-core.zsh not found"
-	exit 1
+  echo "Error: ulcer-core.zsh not found"
+  exit 1
 fi
 
 ##############################################################################
@@ -39,7 +39,7 @@ jmq <task> [<args…>] [--opts…] [KEY=VALUE…]
                    If value is an 1password URI, then value will be fetched using the 'op' tool
     JMQ_PASSWORD   The Jira password (e.g. password)
                    If value is an 1password URI, then value will be fetched using the 'op' tool
-    JMQ_PROJECTS   Comma separated list of project keys to use as default (e.g. PROJ1,PROJ2)
+    JMQ_PROJECTS   Comma separated list of project keys to use as default (e.g. PROJECT,WORK)
                    Used when a ticket number is given without a project key.
                    Also used for the todo and doing commands.
 EOF
@@ -79,7 +79,7 @@ function jmq_pr {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   key=${key##*/}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
@@ -120,28 +120,28 @@ EOF
 function jmq_next {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
 
   local summary=$(v_curl -s --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
-    https://${JMQ_HOST}/rest/api/2/issue/${key}\?fields=summary | \
-    jq -r .fields.summary )
+    https://${JMQ_HOST}/rest/api/2/issue/${key}\?fields=summary |
+    jq -r .fields.summary)
 
   # Get what transitions can be made.
   local transitions=$(v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}')
 
   # Display menu list and ask which to take. (If only one, then just take that without asking)
-  local trn=$(jq -r '.transitions[] | [.id, .name] | @tsv' <<< $transitions | fzf \
+  local trn=$(jq -r '.transitions[] | [.id, .name] | @tsv' <<<$transitions | fzf \
     --select-1 --no-multi --nth=2.. --with-nth=2.. --height 30% \
     --prompt="Follow which transition? " \
     --header="Summary: ${summary}")
   if [[ -z "$trn" ]]; then
     exit
   fi
-  local transition_id=$(awk '{print $1}' <<< $trn )
+  local transition_id=$(awk '{print $1}' <<<$trn)
   # Take it
   v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
@@ -158,7 +158,7 @@ EOF
 function jmq_move {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
@@ -173,7 +173,7 @@ function jmq_move {
   local transitions=$(v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/transitions \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}')
 
-  local inp_id=$(jq --arg nme "$state" '.transitions[]|select(.name==$nme)|.id' <<< $transitions)
+  local inp_id=$(jq --arg nme "$state" '.transitions[]|select(.name==$nme)|.id' <<<$transitions)
   if [[ -z "$inp_id" ]]; then
     echo "Cannot directly transition to $state"
     exit
@@ -229,8 +229,8 @@ function jmq_as_status {
   v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
-    -d "$req" | \
-    jq -r "$filter" | \
+    -d "$req" |
+    jq -r "$filter" |
     mlr --itsv --opprint --implicit-csv-header --headerless-csv-output cat
 }
 
@@ -265,7 +265,7 @@ EOF
 function jmq_info {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
@@ -282,11 +282,9 @@ function jmq_info {
     issuetype
     status
     resolution
-    votes
-    watches
     customfield_10820 # Tester
     customfield_12537 # Validation Nodes (rich text)
-    )
+  )
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
   v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
@@ -357,7 +355,7 @@ EOF
 function jmq_open {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
@@ -374,7 +372,7 @@ EOF
 function jmq_mdl {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
@@ -392,7 +390,7 @@ EOF
 function jmq_files {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
@@ -403,13 +401,13 @@ function jmq_files {
     key
     summary
     attachment
-    )
+  )
   local req=$(jq -n -c --arg jql "$key" '{"jql": $jql, "fields": $ARGS.positional }' --args -- ${fields})
 
   v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
-    -d "$req" | \
+    -d "$req" |
     jq -r '.issues[] | .fields.attachment[] | [.filename, .mimeType, .content]|@tsv' |
     mlr --itsv --implicit-csv-header --opprint label name,type,link
 }
@@ -424,7 +422,7 @@ EOF
 function jmq_attach {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
@@ -441,7 +439,7 @@ function jmq_attach {
       f=${dst}
     fi
     v_curl -s https://${JMQ_HOST}/rest/api/2/issue/${key}/attachments \
-    	-H 'X-Atlassian-Token: nocheck' \
+      -H 'X-Atlassian-Token: nocheck' \
       --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
       -F "file=@${f}"
   done
@@ -461,25 +459,26 @@ function jmq_labels {
     keys=($(jmq_branch))
   fi
   # in place, replace any numbers with the project prefix
-  for (( i=1; i <= ${#keys}; i++ )); do
-    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+  for ((i = 1; i <= ${#keys}; i++)); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]]; then
       keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
     fi
   done
   local jql="key in (${(j:,:)keys})"
   local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "labels"] }')
-  local res=$(v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
-    -H 'Content-Type: application/json' \
-    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
-    -d "$req"
-    )
-    if [[ $# = 1 ]]; then
-      # if one key, then just print labels.
-      jq -r '.issues[0].fields.labels[]' <<< $res
-    else
-      # if many, then print yaml like keys and labels
-      jq -r '.issues[] | {(.key): .fields.labels} | to_entries | .[] | .key + ": " + (.value | join(", "))' <<< $res
-    fi
+  local res=$(
+    v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
+      -H 'Content-Type: application/json' \
+      --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
+      -d "$req"
+  )
+  if [[ $# = 1 ]]; then
+    # if one key, then just print labels.
+    jq -r '.issues[0].fields.labels[]' <<<$res
+  else
+    # if many, then print yaml like keys and labels
+    jq -r '.issues[] | {(.key): .fields.labels} | to_entries | .[] | .key + ": " + (.value | join(", "))' <<<$res
+  fi
 }
 
 function jmq_help_label_add {
@@ -498,8 +497,8 @@ function jmq_label_add {
     keys=($(jmq_branch))
   fi
   # in place, replace any numbers with the project prefix
-  for (( i=1; i <= ${#keys}; i++ )); do
-    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+  for ((i = 1; i <= ${#keys}; i++)); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]]; then
       keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
     fi
   done
@@ -530,8 +529,8 @@ function jmq_label_del {
     keys=($(jmq_branch))
   fi
   # in place, replace any numbers with the project prefix
-  for (( i=1; i <= ${#keys}; i++ )); do
-    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+  for ((i = 1; i <= ${#keys}; i++)); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]]; then
       keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
     fi
   done
@@ -562,8 +561,8 @@ function jmq_links {
     keys=($(jmq_branch))
   fi
   # in place, replace any numbers with the project prefix
-  for (( i=1; i <= ${#keys}; i++ )); do
-    if [[ ${keys[$i]} =~ "^[0-9]+$" ]];then
+  for ((i = 1; i <= ${#keys}; i++)); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]]; then
       keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
     fi
   done
@@ -572,19 +571,20 @@ function jmq_links {
 
   local jql="key in (${(j:,:)keys})"
   local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql, "fields": ["key", "issuelinks", "fixVersions", "labels"] }')
-  local res=$(v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
-    -H 'Content-Type: application/json' \
-    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
-    -d "$req"
-    )
-  local map=$( jq -r '[ .issues[] | .key as $issueKey |
+  local res=$(
+    v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
+      -H 'Content-Type: application/json' \
+      --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
+      -d "$req"
+  )
+  local map=$(jq -r '[ .issues[] | .key as $issueKey |
       .fields.issuelinks[] |
       if has("inwardIssue") then
         [.type.name, .inwardIssue.key, $issueKey]
       else
         [.type.name, $issueKey, .outwardIssue.key]
       end
-      ] | unique' <<< $res)
+      ] | unique' <<<$res)
 
   if [[ -n "${ucr_opts[dot]}" ]]; then
     # as a graph thru dot
@@ -597,19 +597,19 @@ function jmq_links {
       to_entries |
       map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n" +
         (.value | map(" \""+.+"\";") | join("\n")) + "\n}"
-        ) | join("\n")' <<< $res
+        ) | join("\n")' <<<$res
 
     # Subgraphs for labels (filter for specific labels?)
     jq -r '[.issues[] | {"key":.key, "value":.fields.labels[]}] | reduce .[] as {$key,$value} ({}; .[$value] += [$key]) |
       to_entries | map("subgraph \"cluster_" + .key + "\" {\n label=\"" + .key + "\";\n style=dashed;\n" +
         (.value | map(" \""+.+"\";") | join("\n")) + "\n}"
-        ) | join("\n")' <<< $res
+        ) | join("\n")' <<<$res
 
     # Links
     jq -r --argjson lineopts "$line_opts_json" '.[] |
       "\"\(.[1])\" -> \"\(.[2])\" [" +
       (($lineopts) | to_entries | map("\(.key)=\(.value)") | join(", ")) +
-      "]"' <<< $map
+      "]"' <<<$map
     echo "}"
   else
     # as a table thru miller
@@ -628,7 +628,7 @@ EOF
 function jmq_work {
   # work <ticket> [<parent>]
   local key=${1:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
@@ -684,7 +684,7 @@ function jmq_merge {
   # merge <ticket> [<branch>]
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   local into=${2:-stable}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
@@ -716,13 +716,13 @@ EOF
 function jmq_comments {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi
 
   v_curl -s "https://${JMQ_HOST}/rest/api/3/issue/${(U)key}/comment" \
-    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' | \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' |
     jq -r '
     def adf_text:
       if .type == "text" then .text
@@ -752,7 +752,7 @@ EOF
 }
 function jmq_full {
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]];then
+  if [[ $key =~ "^[0-9]+$" ]]; then
     want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
     key=${JMQ_PROJECTS%%,*}-$key
   fi

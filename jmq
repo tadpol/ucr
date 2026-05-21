@@ -294,7 +294,7 @@ function jmq_info {
     # Recursively extract text content from an ADF node
     def adf_text:
       if .type == "text" then .text
-      elif .type == "mention" then .attrs.text
+      elif .type == "mention" then (.attrs.text | gsub("\\s+"; "_"))
       elif .type == "hardBreak" then "\n"
       elif .type == "paragraph" then ([.content[]? | adf_text] | join("")) + "\n"
       elif .type == "heading" then ("#" * (.attrs.level // 1)) + " " + ([.content[]? | adf_text] | join("")) + "\n"
@@ -726,7 +726,7 @@ function jmq_comments {
     jq -r '
     def adf_text:
       if .type == "text" then .text
-      elif .type == "mention" then .attrs.text
+      elif .type == "mention" then (.attrs.text | gsub("\\s+"; "_"))
       elif .type == "hardBreak" then "\n"
       elif .type == "paragraph" then ([.content[]? | adf_text] | join("")) + "\n"
       elif .type == "heading" then ("#" * (.attrs.level // 1)) + " " + ([.content[]? | adf_text] | join("")) + "\n"

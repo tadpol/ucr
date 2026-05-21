@@ -312,7 +312,6 @@ function jmq_info {
      Tester: \(.fields.customfield_10820.displayName?)
        Type: \(.fields.issuetype.name) (\(.fields.priority.name))
      Status: \(.fields.status.name) (Resolution: \(.fields.resolution.name))
-    Watches: \(.fields.watches.watchCount)  Votes: \(.fields.votes.votes)
 Description: \(.fields.description | adf_text)
  Validation: \(.fields.customfield_12537 | adf_text)"'
 }
@@ -613,8 +612,8 @@ function jmq_links {
     echo "}"
   else
     # as a table thru miller
-    jq -r '.[] | @csv' <<< $map | \
-      mlr --icsv --opprint --barred --implicit-csv-header label Type,From,To
+    jq -r '.[] | @csv' <<<$map |
+      mlr --icsv --opprint --implicit-csv-header label Type,From,To
   fi
 }
 
@@ -759,6 +758,59 @@ function jmq_full {
   jmq_info "$key"
   jmq_links "$key"
   jmq_comments "$key"
+}
+
+function jmq_help_review {
+  cat <<EOF
+jmq review <issue> - Generate an AI Review of a ticket and pull request
+EOF
+}
+function jmq_review {
+  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
+  if [[ $key =~ "^[0-9]+$" ]]; then
+    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+    key=${JMQ_PROJECTS%%,*}-$key
+  fi
+  local model=""
+  [ -n "${ucr_opts[model]}" ] && model="--model ${ucr_opts[model]}"
+
+  # Look for a github pull request
+  # We have the ticket number in either (or both) the PR title and the branch name.
+  local pr=$(gh pr list --json number,title,headRefName |
+    jq --arg key "${(L)key}" 'map( select ( (.title|test($key;"i")) or (.headRefName|test($key;"i"))) ) | .[0].number')
+
+  if [ -z $pr ]; then
+    echo "No pull request found for ticket ${(U)key}"
+    return 1
+  fi
+
+  local prompt='
+  You are an extremely skilled programmer with a keen eye for detail working as a positive team member.
+  Your job is to review the pull request as a solution to the ticket.
+
+  Your response is a markdown formatted report that will be given to the team for them to address.
+  Provide constructive feedback, and make actionable suggestions where appropriate.
+  '
+
+  (
+    echo "# Review details"
+    echo "## Ticket ${(U)key}"
+    echo "### Info"
+    jmq_info "$key"
+    echo "### Links"
+    jmq_links "$key"
+    echo "### Comments"
+    jmq_comments "$key"
+    echo "## Pull Request $pr"
+    echo "### Info"
+    gh pr view "$pr"
+    echo "## Checks"
+    gh pr checks "$pr"
+    echo "### Changes"
+    gh pr diff "$pr"
+    echo ""
+    echo "$prompt"
+  ) | llm ${=model}
 }
 
 ##############################################################################

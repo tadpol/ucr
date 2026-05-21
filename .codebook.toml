@@ -1,4 +1,5 @@
 words = [
+    "Jira",
     "auth",
     "buildx",
     "cass",
@@ -8,10 +9,12 @@ words = [
     "devmode",
     "dtog",
     "duckdb",
+    "graphviz",
     "icsv",
     "ijson",
     "itsv",
     "jmq",
+    "jql",
     "limactl",
     "listparams",
     "mdelete",

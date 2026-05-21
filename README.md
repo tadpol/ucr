@@ -93,6 +93,7 @@ Just the ones above.
 - [mlr](https://github.com/johnkerl/miller)
 - open
 - zip
+- For PR review, [llm](https://llm.datasette.io/en/stable/index.html)
 
 #### Exo
 

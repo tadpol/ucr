@@ -505,6 +505,37 @@ function ucr_service_set {
     -d "$opt_req"
 }
 
+function ucr_help_service_quota_set {
+  cat <<EOF
+ucr service quota set <service> <quota-key> <quota-value> […]
+  Set quota keys for a service.
+EOF
+}
+function ucr_service_quota_set {
+  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID '^[a-zA-Z0-9]+$'
+  local service=${1:?Need service name}
+  shift
+
+  local opt_req=$(jq -n 'def nwise($n): while(.!=[]; .[$n:])[:$n];
+  {
+    "quota": ([$ARGS.positional | nwise(2)] | map({key: .[0], value: .[1]}) | from_entries )
+  }' --args -- "${@}")
+
+  v_curl -s ${UCR_API_URL}/serviceconfig/${UCR_SID}_${(L)service}${query_opts} \
+    -H 'Content-Type: application/json' \
+    -X PUT \
+    -d "$opt_req"
+}
+function ucr_help_service_quota_get {
+  cat <<EOF
+ucr service quota get <service>
+  Get quota keys for a service.
+EOF
+}
+function ucr_service_quota_get {
+  ucr_service_details "$1" | jq .quota
+}
+
 function ucr_help_service_add {
   cat <<EOF
 ucr service add <service>

@@ -639,15 +639,17 @@ function ucr_service_install {
 
 function ucr_help_service_uninstall {
   cat <<EOF
-ucr service uninstall <service>
+ucr service uninstall <service> [--force]
   Uninstall a service
 EOF
 }
 function ucr_service_uninstall {
   want_envs UCR_API_URL "$ucr_api_url_pattern"
   local service=${1:?Need service name}
+  local force=""
+  [ -n "${ucr_opts[force]}" ] && force='?force=true'
 
-  v_curl -s ${UCR_API_URL}/service/${(L)service} \
+  v_curl -s ${UCR_API_URL}/service/${(L)service}$force \
     -H 'Content-Type: application/json' \
     -X DELETE
 }

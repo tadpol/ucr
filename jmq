@@ -294,6 +294,7 @@ function jmq_info {
     # Recursively extract text content from an ADF node
     def adf_text:
       if .type == "text" then .text
+      elif .type == "inlineCard" then "[" + (.attrs.url | split("/") | last) + "][]"
       elif .type == "mention" then (.attrs.text | gsub("\\s+"; "_"))
       elif .type == "hardBreak" then "\n"
       elif .type == "paragraph" then ([.content[]? | adf_text] | join("")) + "\n"
@@ -302,7 +303,7 @@ function jmq_info {
       elif .type == "listItem" then "• " + ([.content[]? | adf_text] | join(""))
       elif .type == "codeBlock" then "```\n" + ([.content[]? | adf_text] | join("")) + "```\n"
       elif .content? then [.content[] | adf_text] | join("")
-      else ""
+      else "�"
       end;
     .issues[] |
       "        Key: \(.key)
@@ -725,6 +726,7 @@ function jmq_comments {
     jq -r '
     def adf_text:
       if .type == "text" then .text
+      elif .type == "inlineCard" then "[" + (.attrs.url | split("/") | last) + "][]"
       elif .type == "mention" then (.attrs.text | gsub("\\s+"; "_"))
       elif .type == "hardBreak" then "\n"
       elif .type == "paragraph" then ([.content[]? | adf_text] | join("")) + "\n"
@@ -733,7 +735,7 @@ function jmq_comments {
       elif .type == "listItem" then "• " + ([.content[]? | adf_text] | join(""))
       elif .type == "codeBlock" then "```\n" + ([.content[]? | adf_text] | join("")) + "```\n"
       elif .content? then [.content[] | adf_text] | join("")
-      else ""
+      else "�"
       end;
     .comments[] |
       "---\n  Author: \(.author.displayName)\n Created: \(.created[:19])\n\(.body | adf_text)"'

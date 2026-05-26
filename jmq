@@ -577,17 +577,18 @@ function jmq_links {
       --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
       -d "$req"
   )
-  local map=$(jq -r '[ .issues[] | .key as $issueKey |
-      .fields.issuelinks[] |
-      if has("inwardIssue") then
-        [.type.name, .inwardIssue.key, $issueKey]
-      else
-        [.type.name, $issueKey, .outwardIssue.key]
-      end
-      ] | unique' <<<$res)
 
   if [[ -n "${ucr_opts[dot]}" ]]; then
     # as a graph thru dot
+    local map=$(jq -r '[ .issues[] | .key as $issueKey |
+        .fields.issuelinks[] |
+        if has("inwardIssue") then
+          [.type.name, .inwardIssue.key, $issueKey]
+        else
+          [.type.name, $issueKey, .outwardIssue.key]
+        end
+        ] | unique' <<<$res)
+
     echo "digraph {"
     # Subgraphs for releases
     jq -r '[ .issues[] | .key as $issueKey |
@@ -612,9 +613,15 @@ function jmq_links {
       "]"' <<<$map
     echo "}"
   else
-    # as a table thru miller
-    jq -r '.[] | @csv' <<<$map |
-      mlr --icsv --opprint --implicit-csv-header label Type,From,To
+    # Type ->|<- Key Summary
+    jq -r '.issues[] | .key as $issueKey |
+      .fields.issuelinks[] |
+      if has("inwardIssue") then
+        "\(.type.name): \($issueKey) ⇒ \(.inwardIssue.key) \(.inwardIssue.fields.summary)"
+      else
+        "\(.type.name): \($issueKey) ⇐ \(.outwardIssue.key) \(.outwardIssue.fields.summary)"
+      end
+      ' <<<$res
   fi
 }
 

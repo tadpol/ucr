@@ -176,20 +176,38 @@ function worldbuilder_update {
 
 function worldbuilder_help_where {
   cat <<EOF
-worldbuilder where <section>
+worldbuilder where [<section>]
   Prints the current branch for the section.
+  If section is omitted, outputs a table with all sections
 EOF
 }
 function worldbuilder_where {
   want_envs WORLDBUILDER_FILE "^.+$"
-  local whom=$(worldbuilder_namer ${1:?Need section to work on})
-  load_from_ini "$WORLDBUILDER_FILE" "$whom"
-  want_envs dir "^.+$"
-  (
-    cd ${dir}
-    echo -n "$whom : "
-    git symbolic-ref --quiet HEAD
-  )
+
+  if [[ $# == 0 ]]; then
+    # Build table for all sections.
+    local skiplist=(${(z)${(s:,:)${WORLDBUILDER_SKIPLIST}}})
+    while read -r whom dir; do
+      if [[ " ${skiplist[@]} " =~ " ${whom} " ]]; then
+        continue
+      fi
+      (
+        cd ${dir}
+        echo -n "$whom\t"
+        git symbolic-ref --quiet HEAD
+      )
+    done < <(yq -p ini -o json -r 'toentries[]|[.key,.value.dir]|@tsv' "$WORLDBUILDER_FILE") |
+      mlr --itsv --hi --ho --opprint cat
+  else
+    local whom=$(worldbuilder_namer ${1:?Need section to work on})
+    # the location of the quotes and spaces are important here:
+    local dir=$(yq -p ini -o json -r '.["'"$whom"'"].dir' "$WORLDBUILDER_FILE")
+    (
+      cd ${dir}
+      echo -n "$whom\t"
+      git symbolic-ref --quiet HEAD
+    )
+  fi
 }
 
 function worldbuilder_help_switch {
@@ -483,14 +501,14 @@ function worldbuilder_help_all {
   cat <<EOF
 worldbuilder all <task> [--time] [--verbose] [--show]
   Runs a task for each section in the worldbuilder file.
-  Tasks are: audit, build, clone, inject, update, where
+  Tasks are: audit, build, clone, inject, update
 
   WORLDBUILDER_SKIPLIST can be set to a comma separated list of sections to skip.
 EOF
 }
 function worldbuilder_all {
   local action=${1:-build}
-  local allowed=(audit build clone inject update where)
+  local allowed=(audit build clone inject update)
   if [[ ! " ${allowed[@]} " =~ " ${action} " ]]; then
     echo "Unknown action: $action" >&2
     exit 1

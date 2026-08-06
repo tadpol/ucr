@@ -187,9 +187,10 @@ function jmq_move {
 
 function jmq_help_as_status {
   cat <<EOF
-jmq as status <status> [--all]
+jmq as status <status> [--all] [--unblocked]
   List the tickets assigned to you and in current projects that are in the given status.
   If --all is given, then all projects are searched.
+  If --unblocked is given, then filter out blocked issues.
 EOF
 }
 function jmq_as_status {
@@ -236,9 +237,10 @@ function jmq_as_status {
 
 function jmq_help_todo {
   cat <<EOF
-jmq todo [--all]
+jmq todo [--all] [--unblocked]
   List the tickets assigned to you that are in the "On Deck" state.
   If --all is given, then all projects are searched.
+  If --unblocked is given, then filter out blocked issues.
 EOF
 }
 function jmq_todo {
@@ -627,7 +629,7 @@ function jmq_links {
 
 function jmq_help_work {
   cat <<EOF
- work <ticket> [<parent>]
+ jmq work <ticket> [<parent>]
   Move a ticket to "In Progress" and create a branch for it.
   If a parent is given, then create the branch there.
 EOF
@@ -771,27 +773,67 @@ function jmq_full {
 
 function jmq_help_review {
   cat <<EOF
-jmq review <issue> - Generate an AI Review of a ticket and pull request
+jmq review [<issue> | --pr=<PR#>] [--model=<string>]
+  Generate an AI Review of a ticket and pull request
+
+  <issue> - The issue to review.
+  --pr=<PR#> - The PR number to review.
+  If only one given, will figure the other out.
+
+  --model=<string> - The model to use for the AI Review. Default is set in `llm models default`
 EOF
 }
 function jmq_review {
-  local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
-  if [[ $key =~ "^[0-9]+$" ]]; then
-    want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
-    key=${JMQ_PROJECTS%%,*}-$key
+  want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  # See what we were given
+  local key=${1}
+  local pr=${ucr_opts[pr]}
+
+  # If we have one, but not the other, see if we can figure it out
+  if [[ -z "$key" && -n "$pr" ]]; then
+    # Have PR, but no key.
+    # First look at the PR title, typically the issue key will be there in parentheses.
+    gh pr view $pr --json title | jq -r '.title | match("[a-z]+-\\d+"; "i").string' | read pr_title
+    if [ -n "$pr_title" ]; then
+      key=${(L)pr_title}
+    else
+      # Maybe we are in the middle of a ticket, so we can use the branch name.
+      key=${(L)$(jmq_branch)}
+    fi
+
+  elif [[ -n "$key" && -z "$pr" ]]; then
+    # Have key, but no PR.
+    # auto prefix project
+    if [[ $key =~ "^[0-9]+$" ]]; then
+      key=${JMQ_PROJECTS%%,*}-$key
+    fi
+    # Look for a github pull request
+    # We have the ticket number in either (or both) the PR title and the branch name.
+    local pr=$(gh pr list --json number,title,headRefName |
+      jq --arg key "${(L)key}" 'map( select ( (.title|test($key;"i")) or (.headRefName|test($key;"i"))) ) | .[0].number')
+  elif [[ -z "$key" && -z "$pr" ]]; then
+    # missing both
+    key=${(L)$(jmq_branch)}
+    if [[ -z "$key" ]]; then
+      echo "No key or pull request specified"
+      return 1
+    fi
+
+    pr=$(gh pr list --json number,title,headRefName |
+      jq --arg key "${(L)key}" 'map( select (.title|test($key;"i")) ) | .[0].number')
   fi
+  [[ -z "${ucr_opts[debug]}" ]] || echo "KEY: $key ; PR: $pr" >&2
+
+  # Now, if we are still missing one, we need to stop and let the user know
+  if [[ -z "$key" || -z "$pr" ]]; then
+    echo "No key or pull request specified"
+    return 1
+  fi
+
   local model=""
   [ -n "${ucr_opts[model]}" ] && model="--model ${ucr_opts[model]}"
 
-  # Look for a github pull request
-  # We have the ticket number in either (or both) the PR title and the branch name.
-  local pr=$(gh pr list --json number,title,headRefName |
-    jq --arg key "${(L)key}" 'map( select ( (.title|test($key;"i")) or (.headRefName|test($key;"i"))) ) | .[0].number')
-
-  if [ -z $pr ]; then
-    echo "No pull request found for ticket ${(U)key}"
-    return 1
-  fi
+  [[ -z "${ucr_opts[dry]}" ]] || exit 0
 
   local prompt='
   You are an extremely skilled programmer with a keen eye for detail working as a positive team member.
@@ -800,6 +842,15 @@ function jmq_review {
   Your response is a markdown formatted report that will be given to the team for them to address.
   Provide constructive feedback, and make actionable suggestions where appropriate.
   '
+
+  # Fetch the PR head so the review tools can read its code via git, without
+  # disturbing the working tree by checking the branch out. The template's
+  # functions read from $JMQ_REVIEW_REF (falling back to HEAD if unset).
+  local ref=""
+  if git fetch -q origin "pull/$pr/head" 2>/dev/null; then
+    ref=$(git rev-parse FETCH_HEAD 2>/dev/null)
+  fi
+  [ -z "$ref" ] && ref=$(gh pr view "$pr" --json headRefOid --jq '.headRefOid')
 
   (
     echo "# Review details"
@@ -817,9 +868,13 @@ function jmq_review {
     gh pr checks "$pr"
     echo "### Changes"
     gh pr diff "$pr"
-    echo ""
-    echo "$prompt"
-  ) | llm ${=model}
+  ) | llm --no-log --system "$prompt" "${=model}"
+  # | JMQ_REVIEW_REF="$ref" llm -t "${SCRIPT_DIR}/jmq-review-template.yaml" "${=model}" --cl 50
+  # Holding off, Given the opportunity to read the entire codebase, the models take it.
+  # And while that gives a much more detailed review, it also gets all kinds of hallucinations
+  # **AND** takes a very long time.
+  # I had hoped that they would just grab a little more detail surrounding the diffs, but that's not
+  # the case.  Might be able to tweak the prompt, but I get good reviews without the extra info already.
 }
 
 ##############################################################################

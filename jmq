@@ -825,7 +825,7 @@ function jmq_review {
   [[ -z "${ucr_opts[debug]}" ]] || echo "KEY: $key ; PR: $pr" >&2
 
   # Now, if we are still missing one, we need to stop and let the user know
-  if [[ -z "$key" || -z "$pr" ]]; then
+  if [[ -z "$key" || -z "$pr" || "$pr" = "null" ]]; then
     echo "No key or pull request specified"
     return 1
   fi
@@ -840,7 +840,7 @@ function jmq_review {
   Your job is to review the pull request as a solution to the ticket.
 
   Your response is a markdown formatted report that will be given to the team for them to address.
-  Provide constructive feedback, and make actionable suggestions where appropriate.
+  Be consice; sticking to the problems presented in the ticket and if the code in the PR addresses them.
   '
 
   # Fetch the PR head so the review tools can read its code via git, without
@@ -869,12 +869,83 @@ function jmq_review {
     echo "### Changes"
     gh pr diff "$pr"
   ) | llm --no-log --system "$prompt" "${=model}"
-  # | JMQ_REVIEW_REF="$ref" llm -t "${SCRIPT_DIR}/jmq-review-template.yaml" "${=model}" --cl 50
-  # Holding off, Given the opportunity to read the entire codebase, the models take it.
-  # And while that gives a much more detailed review, it also gets all kinds of hallucinations
-  # **AND** takes a very long time.
-  # I had hoped that they would just grab a little more detail surrounding the diffs, but that's not
-  # the case.  Might be able to tweak the prompt, but I get good reviews without the extra info already.
+}
+
+function jmq_help_summary {
+cat <<EOF
+jmq summary [<pr> | <commit range>] [--model=<string>]
+  Generate an AI summary of a PR or commit range
+
+  <pr> is a pull request number.
+  <commit range> is a git commit range.
+EOF
+}
+function jmq_summary {
+  local possible_mains=(
+    stable
+    master
+    main
+  )
+  local mode=unknown
+  local key=''
+  if [[ $# == 0 ]]; then
+    # see which "main" to use
+    for main in ${possible_mains[@]}; do
+      [[ -n "${ucr_opts[debug]}" ]] && echo "checking $main" >&2
+      if git merge-base --is-ancestor "$main" HEAD &> /dev/null; then
+        [[ -n "${ucr_opts[debug]}" ]] && echo "Using $main as main branch" >&2
+        mode=commit
+        key="${main}...HEAD"
+        break;
+      fi
+    done
+    if [[ -z "$key" ]]; then
+      echo "No main branch found" >&2
+      return 1
+    fi
+  elif gh pr view --json title "$1" &> /dev/null; then
+    [[ -n "${ucr_opts[debug]}" ]] && echo "Pull Request" >&2
+    mode=pr
+    key="$1"
+  elif git log --oneline "$1" &> /dev/null; then
+    [[ -n "${ucr_opts[debug]}" ]] && echo "Commit" >&2
+    mode=commit
+    key="$1"
+  else
+    echo "Bad args" >&2
+    return 2
+  fi
+
+  [[ -z "${ucr_opts[dry]}" ]] || exit 0
+
+  local model=""
+  [ -n "${ucr_opts[model]}" ] && model="--model ${ucr_opts[model]}"
+
+  if [[ "$mode" == "pr" ]]; then
+    local prompt='
+    Summarize the pull request.  The summary must be in pose and neutral tone.
+    Do not include code snippets or psedo-code in the summary.
+    The summary should be as breif as possible without loosing detail.
+    '
+
+    (
+      echo "# Pull Request $pr"
+      echo "## Info"
+      gh pr view "$pr"
+      echo "# Checks"
+      gh pr checks "$pr"
+      echo "## Changes"
+      gh pr diff "$pr"
+    ) | llm --no-log --system "$prompt" "${=model}"
+  elif [[ "$mode" == "commit" ]]; then
+    local prompt='
+    Summarize these commits.  The summary must be in pose and neutral tone.
+    Do not include code snippets or psedo-code in the summary.
+    The summary should be as breif as possible without loosing detail.
+    '
+
+    git show "$key" | llm --no-log --system "$prompt" "${=model}"
+  fi
 }
 
 ##############################################################################

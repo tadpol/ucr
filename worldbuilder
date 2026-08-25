@@ -4,16 +4,16 @@
 ##############################################################################
 # Set the script name, ulcer-core uses this to find functions and setup the environment
 argv0=${${0:t}:r}
-
+#}
 # Load the ulcer-core.zsh
 SCRIPT_DIR=${0:A:h}
 if [[ -f "${SCRIPT_DIR}/ulcer-core.zsh" ]]; then
-	source "${SCRIPT_DIR}/ulcer-core.zsh"
+  source "${SCRIPT_DIR}/ulcer-core.zsh"
 elif ulcer_core=$(whence -p ulcer-core.zsh) && [[ -n $ulcer_core ]]; then
-	source $ulcer_core
+  source $ulcer_core
 else
-	echo "Error: ulcer-core.zsh not found"
-	exit 1
+  echo "Error: ulcer-core.zsh not found"
+  exit 1
 fi
 
 ##############################################################################
@@ -40,7 +40,7 @@ worldbuilder <task> [<args>]
     WORLDBUILDER_DOCKER_TOOL
       The docker tool to use. Defaults to 'docker'.
     WORLDBUILDER_HOST
-      A space separated list of hosts to inject images into. Each host is expanded with 'worldbuilder host expand'.
+      A space separated list of hosts to inject images into.
     WORLDBUILDER_SKIPLIST
       A comma separated list of sections to skip when using 'worldbuilder foreach' or 'worldbuilder all'.
 EOS
@@ -56,10 +56,10 @@ function worldbuilder_sections {
   want_envs WORLDBUILDER_FILE "^.+$"
 
   while read -r line; do
-    if [[ "$line" =~ "^\[([^]]*)\]"  ]]; then
+    if [[ "$line" =~ "^\[([^]]*)\]" ]]; then
       echo ${match[1]}
     fi
-  done < "$WORLDBUILDER_FILE"
+  done <"$WORLDBUILDER_FILE"
 }
 
 function worldbuilder_help_namer {
@@ -258,7 +258,7 @@ function worldbuilder_audit {
     cd ${dir}
 
     if [[ -n "$ucr_opts[image]" ]]; then
-      trivy image --input ${base}/${imagesDir}/${${image/%:*}:t}.tar  "${extra_args[@]}"
+      trivy image --input ${base}/${imagesDir}/${${image/%:*/}:t}.tar "${extra_args[@]}"
     else
       set -x
       trivy repo . "${extra_args[@]}"
@@ -302,9 +302,8 @@ function worldbuilder_build {
   (
     # set -x
     cd ${dir}
-    typeset -g -x build_target=${base}/${imagesDir}/${${image/%:*}:t}.zip
+    typeset -g -x build_target=${base}/${imagesDir}/${${image/%:*/}:t}.zip
 
-    ## BUILD
     local remember=""
     local needs_stash=""
     if [[ -n "$commit" ]]; then
@@ -320,7 +319,7 @@ function worldbuilder_build {
       ${=build_pre_cmd}
     fi
 
-		if [[ "$type" == "docker" ]]; then
+    if [[ "$type" == "docker" ]]; then
       # Someday, rewrite _all_ the dockerfiles to use --ssh
       if grep -s murano-service-ssh-key Dockerfile >/dev/null; then
         cp ~/.ssh/murano_builder murano-service-ssh-key
@@ -336,12 +335,12 @@ function worldbuilder_build {
       test -e murano-service-ssh-key && rm murano-service-ssh-key
 
       if [[ $exit_code = 0 ]]; then
-        $docker_tool save "${image}" > ${base}/${imagesDir}/${${image/%:*}:t}.tar
+        $docker_tool save "${image}" >${base}/${imagesDir}/${${image/%:*/}:t}.tar
       fi
 
     elif [[ "$type" == "build" ]]; then
       # default to zipping the entire directory
-    	function zip_build() {
+      function zip_build() {
         zip -r -FS "$1" . -x "*.git*" 2>&1 | wc -l
         # pv -lep -s $(find . -name "*.git*" -prune -o -type fd | wc -l) > /dev/null
       }
@@ -360,7 +359,7 @@ function worldbuilder_build {
         gh release download -R "$repo" "$commit" -O "$2" -p "$1" --clobber
       }
 
-      ${=build_cmd} "${base}/${imagesDir}/${${image/%:*}:t}.zip"
+      ${=build_cmd} "${base}/${imagesDir}/${${image/%:*/}:t}.zip"
 
     else
       echo "Unknown type: $type" >&2
@@ -377,42 +376,17 @@ function worldbuilder_build {
   )
 }
 
-function worldbuilder_help_host_expand {
-  cat <<EOF
-worldbuilder host expand <host>
-  Expands a host string into a host and ssh config file.
-
-  This is used for specifying a host in a worldbuilder file and then
-  expanding it into a host and ssh config file for use in other commands.
-
-  Currently only supports 'lima:<name>'.
-EOF
-}
-function worldbuilder_host_expand {
-  # This lets us use `<keyword>:` to expand a bunch of tedious stuff without having to build up massive config files.
-  # This returns a multi-line string with the host and the ssh config file.
-  local host=${1:?Need a host}
-  # ??? Maybe some day allow for a trailing `:\d+` to specify a port?
-
-  # `lima:` is the only prefix we support right now.
-  if [[ "$host" == "lima:"* ]]; then
-    print "lima-${host#lima:}\n${HOME}/.lima/${host#lima:}/ssh.config"
-  else
-    print "$host"
-  fi
-}
-
 function worldbuilder_help_inject {
   cat <<EOF
 worldbuilder inject <section>
   Injects the image from a section in the worldbuilder file into a host.
 
   The hosts are specified in the WORLDBUILDER_HOST environment variable.
-  This is a space separated list of host strings that is expanded with
-  the 'worldbuilder host expand' command.
+  This is a space separated list of host strings.
 EOF
 }
 function worldbuilder_inject {
+  [ -n "${ucr_opts[host]}" ] && export WORLDBUILDER_HOST="${ucr_opts[host]}"
   want_envs WORLDBUILDER_HOST "^[-@._A-Za-z0-9:]+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
@@ -424,28 +398,25 @@ function worldbuilder_inject {
 
   function upload_one {
     # TODO: Prefix all output from this function with the host
-    local cfg=(${(f)"$(worldbuilder_host_expand $WORLDBUILDER_HOST)"})
-    local host=${cfg[1]}
-    local ssh_cfg=''
-    [[ -n ${cfg[2]} ]] && ssh_cfg="-F ${cfg[2]}"
+    local host=$WORLDBUILDER_HOST
     if [[ "$type" == "docker" ]]; then
       set -e
-      ssh ${=ssh_cfg} ${host} -- mkdir -p /tmp/images
-      scp ${=ssh_cfg} ${imagesDir}/${${image/%:*}:t}.tar ${host}:/tmp/images/${${image/%:*}:t}.tar
-      ssh ${=ssh_cfg} ${host} -- docker load -i /tmp/images/${${image/%:*}:t}.tar
-      ssh ${=ssh_cfg} ${host} -- rm /tmp/images/${${image/%:*}:t}.tar
+      ssh ${host} -- mkdir -p /tmp/images
+      scp ${imagesDir}/${${image/%:*/}:t}.tar ${host}:/tmp/images/${${image/%:*/}:t}.tar
+      ssh ${host} -- docker load -i /tmp/images/${${image/%:*/}:t}.tar
+      ssh ${host} -- rm /tmp/images/${${image/%:*/}:t}.tar
     elif [[ "$type" == "build" ]]; then
       set -e
-      ssh ${=ssh_cfg} ${host} -- mkdir -p /tmp/images
-      scp ${=ssh_cfg} ${imagesDir}/${${image/%:*}:t}.zip ${host}:/tmp/images/${${image/%:*}:t}.zip
-      ssh ${=ssh_cfg} ${host} -- sudo mkdir -p ${${dest:-/tmp/images/barf}:h}
-      ssh ${=ssh_cfg} ${host} -- sudo unzip -q -o /tmp/images/${${image/%:*}:t}.zip -d ${dest:-/tmp/images/barf}
-      ssh ${=ssh_cfg} ${host} -- rm /tmp/images/${${image/%:*}:t}.zip
+      ssh ${host} -- mkdir -p /tmp/images
+      scp ${imagesDir}/${${image/%:*/}:t}.zip ${host}:/tmp/images/${${image/%:*/}:t}.zip
+      ssh ${host} -- sudo mkdir -p ${${dest:-/tmp/images/barf}:h}
+      ssh ${host} -- sudo unzip -q -o /tmp/images/${${image/%:*/}:t}.zip -d ${dest:-/tmp/images/barf}
+      ssh ${host} -- rm /tmp/images/${${image/%:*/}:t}.zip
     elif [[ "$type" == "rclone" ]]; then
       set -e
       # Requires rclone to be setup with an alias matching the host part of the host string.
       local tmpdir=$(mktemp -d)
-      unzip -q -o ${imagesDir}/${${image/%:*}:t}.zip -d ${tmpdir}
+      unzip -q -o ${imagesDir}/${${image/%:*/}:t}.zip -d ${tmpdir}
       rclone sync --progress ${tmpdir}/ ${host//:/-}:${dest} --header-upload "cache-control:no-cache"
       rm -rf ${tmpdir}
     else
@@ -479,7 +450,7 @@ function worldbuilder_foreach {
     if [[ " ${skiplist[@]} " =~ " ${sec} " ]]; then
       continue
     fi
-    if [[ -n "${ucr_opts[verbose]}" || -n "${ucr_opts[show]}" ]];then
+    if [[ -n "${ucr_opts[verbose]}" || -n "${ucr_opts[show]}" ]]; then
       local msg=" Running: $cmd '$sec' "
       print -r - ${(l[COLUMNS/2][=]r[COLUMNS-COLUMNS/2][=])msg}
     fi

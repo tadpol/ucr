@@ -219,7 +219,7 @@ function options_to_json {
             build_req+="\"${key}\":$(jq -c <<< ${ucr_opts[$key]})"
             ;;
       	  *)
-            # should be auto; 
+            # should be auto;
             # if it looks like a number, use a number.
             if [[ ${ucr_opts[$key]} =~ "^[0-9]+$" ]]; then
               build_req+="\"${key}\":${ucr_opts[$key]}"
@@ -379,14 +379,13 @@ function ${(L)argv0}_config_sections {
 
 ##############################################################################
 if [[ $ZSH_EVAL_CONTEXT == 'toplevel' ]]; then
-  # Display a message explaining that you should not call this script and 
+  # Display a message explaining that you should not call this script and
   # instead use one of the wrapping task sets
   echo "This is a library file, not a script to run directly." >&2
   echo "You should source this file in your script and then define functions to run." >&2
   echo "Instead try one of these:" >&2
   echo "  ucr tasks" >&2
   echo "  jmq --help" >&2
-  echo "  exo --help" >&2
   echo "  murdoc tasks" >&2
   echo "  worldbuilder tasks" >&2
   exit 1

@@ -1,5 +1,6 @@
 words = [
     "Jira",
+    "aig",
     "auth",
     "buildx",
     "cass",
@@ -20,6 +21,7 @@ words = [
     "mdelete",
     "mget",
     "mise",
+    "mkdir",
     "murdoc",
     "nerdctl",
     "netrc",
@@ -35,6 +37,7 @@ words = [
     "psql",
     "rclone",
     "rediscli",
+    "scp",
     "scriptname",
     "sshto",
     "tojson",

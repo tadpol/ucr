@@ -95,10 +95,6 @@ Just the ones above.
 - zip
 - For PR review, [llm](https://llm.datasette.io/en/stable/index.html)
 
-#### Exo
-
-- [yq](https://mikefarah.gitbook.io/yq)
-
 #### Murdoc
 
 - docker
@@ -117,6 +113,7 @@ Just the ones above.
 - git
 - scp
 - ssh
+- [yq](https://mikefarah.gitbook.io/yq)
 - zip
 
 ## Usage

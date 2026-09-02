@@ -441,11 +441,13 @@ function worldbuilder_build {
       test -e murano-service-ssh-key && rm murano-service-ssh-key
 
       if [[ $exit_code = 0 ]]; then
+        mkdir -p "${base}/${imagesDir}"
         $docker_tool save "${image}" >${base}/${imagesDir}/${${image/%:*/}:t}.tar
       fi
 
     elif [[ "$type" == "build" ]]; then
       local build_target=${base}/${imagesDir}/${${image/%:*/}:t}.zip
+      mkdir -p "${base}/${imagesDir}"
       if [[ -n "$build_cmd" ]]; then
         _worldbuilder_run_cmd "$build_cmd" "$build_target"
       else

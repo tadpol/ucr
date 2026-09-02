@@ -36,7 +36,6 @@ worldbuilder <task> [<args>]
   Environment variables:
     WORLDBUILDER_FILE
       The worldbuilder file to use. Defaults to 'wb.ini' in the current directory.
-      'worldbuilder
     WORLDBUILDER_DOCKER_TOOL
       The docker tool to use. Defaults to 'docker'.
     WORLDBUILDER_HOST
@@ -148,6 +147,9 @@ function worldbuilder_update {
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
   load_from_ini "$WORLDBUILDER_FILE" "$whom"
   want_envs dir "^.+$" commit "^.*$"
+
+  # TODO: Also pull some common branches (stable)
+  # OR add arg/option to work on a specific branch. (override $commit)
 
   (
     cd ${dir}
@@ -321,12 +323,15 @@ function worldbuilder_build {
 
     if [[ "$type" == "docker" ]]; then
       # Someday, rewrite _all_ the dockerfiles to use --ssh
+      # This work has started.  Updated repos no longer have this file in them, so it won't get copied.
+      # All need need is the `--ssh default` on the build, which is harmless for a Dockerfile not using it.
       if grep -s murano-service-ssh-key Dockerfile >/dev/null; then
         cp ~/.ssh/murano_builder murano-service-ssh-key
       fi
 
       $docker_tool build \
         --label com.exosite.build.git_commit="$(git rev-parse HEAD)" \
+        --ssh default \
         --tag "${image}" \
         --platform="${platform}" \
         .

@@ -92,9 +92,9 @@ function _worldbuilder_load {
   local key value tmp
   tmp=$(mktemp "${TMPDIR:-/tmp}/worldbuilder.XXXXXX") || return 2
   _worldbuilder_config "$@" >"$tmp" || {
-    local status=$?
+    local exit_code=$?
     rm -f "$tmp"
-    return $status
+    return $exit_code
   }
   while IFS= read -r -d '' key && IFS= read -r -d '' value; do
     [[ "$key" =~ '^[a-zA-Z_][a-zA-Z0-9_]*$' ]] || {
@@ -104,9 +104,9 @@ function _worldbuilder_load {
     }
     : ${(P)key::=$value}
   done <"$tmp"
-  local status=$?
+  local exit_code=$?
   rm -f "$tmp"
-  return $status
+  return $exit_code
 }
 
 function worldbuilder_sections {
@@ -149,18 +149,27 @@ image=container/name:thing
 # image is the name of the docker image to build, or the name of the zip file to create.
 
 # These keys are optional:
+# A build_* value on one line runs as a command and its arguments.
+# A multiline build_* value runs as an inline zsh script.
+# Inline build_cmd scripts receive the output archive path as \$1.
 platform=linux/arm64|linux/amd64
 # platform is only used for docker builds, and defaults to linux/arm64
 # This value is passed to 'docker build --platform=…'
 type=docker|build
 # type defaults to docker, but can be set to 'build' for things that aren't docker images.
-# If set to 'build', the build_cmd key must be set
+# If set to 'build', build_cmd defaults to zipping the entire directory
 upload_type=docker|build|rclone
 # upload_type defaults to type, but can be overridden to specify how to upload the image.
 build_cmd=command_to_build_thing
 # build_cmd is only used if type is 'build'.
 # This command should create a zip file at the path specified by the image key.
 # build_cmd defaults to zipping up the entire directory.
+# In TOML, a multiline value runs as an inline zsh script:
+# build_cmd = '''
+# set -e
+# make
+# zip -r "\$1" dist
+# '''
 build_pre_cmd=command_to_run_before_build
 # build_pre_cmd is run before the build_cmd, if specified.
 # This runs for all types.
@@ -336,6 +345,28 @@ function worldbuilder_audit {
   )
 }
 
+function _worldbuilder_run_cmd {
+  local command=${1:-}
+  shift
+  [[ -n "$command" ]] || return 0
+
+  if [[ "$command" == *$'\n'* ]]; then
+    local tmp exit_code
+    tmp=$(mktemp "${TMPDIR:-/tmp}/worldbuilder.XXXXXX") || return 2
+    print -r -- "$command" >"$tmp" || {
+      exit_code=$?
+      rm -f "$tmp"
+      return $exit_code
+    }
+    zsh -f "$tmp" "$@"
+    exit_code=$?
+    rm -f "$tmp"
+    return $exit_code
+  fi
+
+  ${=command} "$@"
+}
+
 function worldbuilder_help_build {
   cat <<EOF
 worldbuilder build <section> [--commit <commit>] [--head]
@@ -388,7 +419,7 @@ function worldbuilder_build {
 
     if [[ -n "$build_pre_cmd" ]]; then
       echo "Running pre-build command: ${build_pre_cmd}" >&2
-      ${=build_pre_cmd}
+      _worldbuilder_run_cmd "$build_pre_cmd"
     fi
 
     if [[ "$type" == "docker" ]]; then
@@ -414,27 +445,12 @@ function worldbuilder_build {
       fi
 
     elif [[ "$type" == "build" ]]; then
-      # default to zipping the entire directory
-      function zip_build() {
-        zip -r -FS "$1" . -x "*.git*" 2>&1 | wc -l
-        # pv -lep -s $(find . -name "*.git*" -prune -o -type fd | wc -l) > /dev/null
-      }
-      [[ ! -v "build_cmd" ]] && typeset -g -x build_cmd=zip_build
-
-      # Adding a builtin build command for fetching gh-release asset.
-      function gh_release() {
-        # $1 is the asset we want
-        # $2 is where to save it
-        # Fetch the release asset from github
-        if [[ -n "$commit" ]]; then
-          # make sure it is a tag, because only tags can be releases
-          commit=$(git describe --abbrev=0 --tags $commit)
-        fi
-        # when commit is empty, it will grab the latest release
-        gh release download -R "$repo" "$commit" -O "$2" -p "$1" --clobber
-      }
-
-      ${=build_cmd} "${base}/${imagesDir}/${${image/%:*/}:t}.zip"
+      local build_target=${base}/${imagesDir}/${${image/%:*/}:t}.zip
+      if [[ -n "$build_cmd" ]]; then
+        _worldbuilder_run_cmd "$build_cmd" "$build_target"
+      else
+        zip -r -FS "$build_target" . -x "*.git*"
+      fi
 
     else
       echo "Unknown type: $type" >&2
@@ -443,7 +459,7 @@ function worldbuilder_build {
 
     if [[ -n "$build_post_cmd" ]]; then
       echo "Running post-build command: ${build_post_cmd}" >&2
-      ${=build_post_cmd}
+      _worldbuilder_run_cmd "$build_post_cmd"
     fi
 
     [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"

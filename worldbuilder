@@ -24,6 +24,8 @@ function worldbuilder_help {
 worldbuilder <task> [<args>]
   Tooling to in-mass build many repos and inject the results into VMs.
 
+  WORLDBUILDER_FILE may be an INI (.ini) or TOML (.toml) file.
+
   'worldbuilder help <task>' or 'worldbuilder <task> --help' for more info on a specific task.
   'worldbuilder tasks [<prefix filter>]' to see what tasks are implemented.
   'worldbuilder state' to check ENVs, ARGs, and options.
@@ -51,14 +53,70 @@ worldbuilder sections
   Lists all sections in the worldbuilder file.
 EOF
 }
+
+# Print key/value pairs as NUL-delimited records. Values never become environment variables.
+function _worldbuilder_config {
+  local file=${1:?Need config file}
+  local section=${2:?Need section}
+  local format=${file:e:l}
+  local key
+  local yq_args=(-p "$format" -o yaml -r -0)
+
+  case "$format" in
+    ini|toml) ;;
+    *) echo "Unsupported worldbuilder config format: .$format" >&2; return 2 ;;
+  esac
+  [[ -f "$file" ]] || { echo "Worldbuilder config not found: $file" >&2; return 2; }
+
+  if [[ $# -gt 2 ]]; then
+    for key in "${@:3}"; do
+      WB_SCOPE=$section WB_KEY=$key yq "${yq_args[@]}" \
+        -e '.[strenv(WB_SCOPE)] | has(strenv(WB_KEY))' "$file" >/dev/null 2>/dev/null || {
+        echo "Missing worldbuilder key [$section].$key" >&2
+        return 2
+      }
+      WB_SCOPE=$section WB_KEY=$key yq "${yq_args[@]}" \
+        '.[strenv(WB_SCOPE)] | to_entries[] | select(.key == strenv(WB_KEY)) | [.key, (.value // "")] | .[]' "$file" || return
+    done
+  else
+    WB_SCOPE=$section yq "${yq_args[@]}" -e \
+      '.[strenv(WB_SCOPE)] | to_entries[] | [.key, (.value // "")] | .[]' "$file" || {
+      echo "Missing worldbuilder section: $section" >&2
+      return 2
+    }
+  fi
+}
+
+# Load config values into locals declared by the calling task.
+function _worldbuilder_load {
+  local key value tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/worldbuilder.XXXXXX") || return 2
+  _worldbuilder_config "$@" >"$tmp" || {
+    local status=$?
+    rm -f "$tmp"
+    return $status
+  }
+  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    [[ "$key" =~ '^[a-zA-Z_][a-zA-Z0-9_]*$' ]] || {
+      echo "Invalid worldbuilder key: $key" >&2
+      rm -f "$tmp"
+      return 2
+    }
+    : ${(P)key::=$value}
+  done <"$tmp"
+  local status=$?
+  rm -f "$tmp"
+  return $status
+}
+
 function worldbuilder_sections {
   want_envs WORLDBUILDER_FILE "^.+$"
-
-  while read -r line; do
-    if [[ "$line" =~ "^\[([^]]*)\]" ]]; then
-      echo ${match[1]}
-    fi
-  done <"$WORLDBUILDER_FILE"
+  local format=${WORLDBUILDER_FILE:e:l}
+  case "$format" in
+    ini|toml) ;;
+    *) echo "Unsupported worldbuilder config format: .$format" >&2; return 2 ;;
+  esac
+  yq -p "$format" -o yaml -r 'keys[]' "$WORLDBUILDER_FILE"
 }
 
 function worldbuilder_help_namer {
@@ -125,7 +183,8 @@ EOF
 function worldbuilder_clone {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
-  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  local dir repo
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir repo
   want_envs dir "^.+$" repo "^.+$"
 
   if [[ ! -d "$dir" || -z "$(ls -A "$dir")" ]]; then
@@ -145,7 +204,8 @@ EOF
 function worldbuilder_update {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
-  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  local dir commit
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir commit
   want_envs dir "^.+$" commit "^.*$"
 
   # TODO: Also pull some common branches (stable)
@@ -185,28 +245,34 @@ EOF
 }
 function worldbuilder_where {
   want_envs WORLDBUILDER_FILE "^.+$"
+  local format=${WORLDBUILDER_FILE:e:l}
+  case "$format" in
+    ini|toml) ;;
+    *) echo "Unsupported worldbuilder config format: .$format" >&2; return 2 ;;
+  esac
 
   if [[ $# == 0 ]]; then
     # Build table for all sections.
     local skiplist=(${(z)${(s:,:)${WORLDBUILDER_SKIPLIST}}})
-    while read -r whom dir; do
+    local whom dir
+    while IFS= read -r -d '' whom && IFS= read -r -d '' dir; do
       if [[ " ${skiplist[@]} " =~ " ${whom} " ]]; then
         continue
       fi
       (
-        cd ${dir}
-        echo -n "$whom\t"
+        cd "$dir"
+        print -r -n -- "$whom"$'\t'
         git symbolic-ref --quiet HEAD
       )
-    done < <(yq -p ini -o json -r 'toentries[]|[.key,.value.dir]|@tsv' "$WORLDBUILDER_FILE") |
+    done < <(yq -p "$format" -o yaml -r -0 'to_entries[] | [.key, (.value.dir // "")] | .[]' "$WORLDBUILDER_FILE") |
       mlr --itsv --hi --ho --opprint cat
   else
     local whom=$(worldbuilder_namer ${1:?Need section to work on})
-    # the location of the quotes and spaces are important here:
-    local dir=$(yq -p ini -o json -r '.["'"$whom"'"].dir' "$WORLDBUILDER_FILE")
+    local dir
+    _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir
     (
-      cd ${dir}
-      echo -n "$whom\t"
+      cd "$dir"
+      print -r -n -- "$whom"$'\t'
       git symbolic-ref --quiet HEAD
     )
   fi
@@ -221,7 +287,8 @@ EOF
 function worldbuilder_switch {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
-  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  local dir commit
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir commit
   want_envs dir "^.+$" commit "^.*$"
   [[ $# -gt 1 ]] && commit=${2:-$commit}
   if [[ -z "$commit" ]]; then
@@ -245,7 +312,8 @@ function worldbuilder_audit {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
   shift
-  load_from_ini "$WORLDBUILDER_FILE" "$whom"
+  local dir image commit repo
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir image commit repo
   want_envs dir "^.+$" image "^.+$" commit "^.*$" repo "^.+$"
 
   local base=$PWD
@@ -289,9 +357,11 @@ function worldbuilder_build {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
   local docker_tool=${WORLDBUILDER_DOCKER_TOOL:-docker} # or 'nerdctl' or 'nerdctl.lima'
-  load_from_ini "$WORLDBUILDER_FILE" "$whom"
-  [[ ! -v "type" ]] && typeset -g -x type=docker
-  [[ ! -v "platform" ]] && typeset -g -x platform=$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')
+  local dir image type platform commit repo build_cmd build_pre_cmd build_post_cmd
+  local dest upload_type
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom"
+  [[ -z "$type" ]] && type=docker
+  [[ -z "$platform" ]] && platform=$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')
 
   want_envs dir "^.+$" image "^.+$" type "^.+$" commit "^.*$" repo "^.+$"
 
@@ -395,10 +465,11 @@ function worldbuilder_inject {
   want_envs WORLDBUILDER_HOST "^[-@._A-Za-z0-9:]+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
+  local image type upload_type dest
 
-  load_from_ini "$WORLDBUILDER_FILE" "$whom"
-  [[ -v "upload_type" ]] && type=$upload_type
-  [[ ! -v "type" ]] && type=docker
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" image type upload_type dest
+  [[ -n "$upload_type" ]] && type=$upload_type
+  [[ -z "$type" ]] && type=docker
   want_envs image "^.+$" type "^.+$"
 
   function upload_one {
@@ -462,8 +533,7 @@ function worldbuilder_foreach {
 
     # the `'` in front of the $sec is to enable fzf exact mode.
     $cmd "'$sec"
-    # TODO: get the list of vars to unset from the section…
-    unset image type commit repo dir platform dest build_cmd build_pre_cmd build_post_cmd
+
   done
 
   if [[ -n "${ucr_opts[time]}" ]]; then

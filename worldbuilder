@@ -477,7 +477,7 @@ function worldbuilder_inject {
   local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
   local image type upload_type dest
 
-  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" image type upload_type dest
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" image
   [[ -n "$upload_type" ]] && type=$upload_type
   [[ -z "$type" ]] && type=docker
   want_envs image "^.+$" type "^.+$"

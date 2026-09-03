@@ -47,11 +47,9 @@ worldbuilder <task> [<args>]
 EOS
 }
 
-function worldbuilder_help_sections {
-  cat <<EOF
-worldbuilder sections
-  Lists all sections in the worldbuilder file.
-EOF
+function worldbuilder_spec {
+  reply=($'arg\t1\ttask\toptional'
+         $'arg\t2\tkey=value\trepeated\tdescription=Environment overrides')
 }
 
 # Print key/value pairs as NUL-delimited records. Values never become environment variables.
@@ -109,6 +107,12 @@ function _worldbuilder_load {
   return $exit_code
 }
 
+function worldbuilder_help_sections {
+  cat <<EOF
+worldbuilder sections
+  Lists all sections in the worldbuilder file.
+EOF
+}
 function worldbuilder_sections {
   want_envs WORLDBUILDER_FILE "^.+$"
   local format=${WORLDBUILDER_FILE:e:l}
@@ -116,6 +120,7 @@ function worldbuilder_sections {
     ini|toml) ;;
     *) echo "Unsupported worldbuilder config format: .$format" >&2; return 2 ;;
   esac
+  [[ -f "$WORLDBUILDER_FILE" ]] || { echo "Worldbuilder config not found: $WORLDBUILDER_FILE" >&2; return 2; }
   yq -p "$format" -o yaml -r 'keys[]' "$WORLDBUILDER_FILE"
 }
 
@@ -189,6 +194,9 @@ worldbuilder clone <section>
   Clones the repo for the section if it doesn't exist.
 EOF
 }
+function worldbuilder_spec_clone {
+  reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections')
+}
 function worldbuilder_clone {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
@@ -209,6 +217,9 @@ worldbuilder update <section>
   This will stash and switch branches if the declared commit isn't the current one,
   and return back to the original branch.
 EOF
+}
+function worldbuilder_spec_update {
+  reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections')
 }
 function worldbuilder_update {
   want_envs WORLDBUILDER_FILE "^.+$"
@@ -254,6 +265,9 @@ worldbuilder where [<section>]
   If section is omitted, outputs a table with all sections
 EOF
 }
+function worldbuilder_spec_where {
+  reply=($'arg\t1\tsection\toptional\tcompletion=worldbuilder sections')
+}
 function worldbuilder_where {
   want_envs WORLDBUILDER_FILE "^.+$"
   local format=${WORLDBUILDER_FILE:e:l}
@@ -295,6 +309,10 @@ worldbuilder switch <section> [commit]
   Switches to a commit or branch for a section.
 EOF
 }
+function worldbuilder_spec_switch {
+  reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections'
+         $'arg\t2\tcommit\toptional\tcompletion=freeform')
+}
 function worldbuilder_switch {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
@@ -318,6 +336,12 @@ function worldbuilder_help_audit {
 worldbuilder audit <section> [--verbose] [--image] -- [trivy options]
   Runs the audit tool for the section.
 EOF
+}
+function worldbuilder_spec_audit {
+  reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections'
+         $'opt\tverbose\tflag\tdescription=Show verbose output'
+         $'opt\timage\tflag\tdescription=Audit a saved image'
+         $'arg\t2\ttrivy\toptional\tpassthrough=true')
 }
 function worldbuilder_audit {
   want_envs WORLDBUILDER_FILE "^.+$"
@@ -371,7 +395,7 @@ function _worldbuilder_run_cmd {
 
 function worldbuilder_help_build {
   cat <<EOF
-worldbuilder build <section> [--commit <commit>] [--head]
+worldbuilder build <section> [--commit=<commit>] [--head]
   Builds an image from a section in the worldbuilder file.
   This will stash and switch branches if the declared commit isn't the current one,
   and return back to the original branch.
@@ -386,6 +410,11 @@ EOF
 }
 # Builds an image from a section in the worldbuilder file.
 # Doing its best to be idempotent.
+function worldbuilder_spec_build {
+  reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections'
+         $'opt\tcommit\tvalue\tcompletion=freeform\tdescription=Commit or branch'
+         $'opt\thead\tflag\tdescription=Build current HEAD')
+}
 function worldbuilder_build {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
@@ -469,6 +498,10 @@ worldbuilder inject <section>
   The hosts are specified in the WORLDBUILDER_HOST environment variable.
   This is a space separated list of host strings.
 EOF
+}
+function worldbuilder_spec_inject {
+  reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections'
+         $'opt\thost\tvalue\tcompletion=freeform\tdescription=Host list')
 }
 function worldbuilder_inject {
   [ -n "${ucr_opts[host]}" ] && export WORLDBUILDER_HOST="${ucr_opts[host]}"

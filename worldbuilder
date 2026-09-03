@@ -219,6 +219,8 @@ function worldbuilder_update {
 
   # TODO: Also pull some common branches (stable)
   # OR add arg/option to work on a specific branch. (override $commit)
+  # If "pulling" multiple, do we really want git-pull? or for the others do we really want to move the local branch to match
+  # the remote?  Most notable with our develop branch and that you'll likely need to force replace that anyways.
 
   (
     cd ${dir}
@@ -418,18 +420,11 @@ function worldbuilder_build {
     fi
 
     if [[ -n "$build_pre_cmd" ]]; then
-      echo "Running pre-build command: ${build_pre_cmd}" >&2
+      echo "Running pre-build command…" >&2
       _worldbuilder_run_cmd "$build_pre_cmd"
     fi
 
     if [[ "$type" == "docker" ]]; then
-      # Someday, rewrite _all_ the dockerfiles to use --ssh
-      # This work has started.  Updated repos no longer have this file in them, so it won't get copied.
-      # All need need is the `--ssh default` on the build, which is harmless for a Dockerfile not using it.
-      if grep -s murano-service-ssh-key Dockerfile >/dev/null; then
-        cp ~/.ssh/murano_builder murano-service-ssh-key
-      fi
-
       $docker_tool build \
         --label com.exosite.build.git_commit="$(git rev-parse HEAD)" \
         --ssh default \
@@ -437,9 +432,6 @@ function worldbuilder_build {
         --platform="${platform}" \
         .
       local exit_code=$?
-
-      test -e murano-service-ssh-key && rm murano-service-ssh-key
-
       if [[ $exit_code = 0 ]]; then
         mkdir -p "${base}/${imagesDir}"
         $docker_tool save "${image}" >${base}/${imagesDir}/${${image/%:*/}:t}.tar
@@ -460,7 +452,7 @@ function worldbuilder_build {
     fi
 
     if [[ -n "$build_post_cmd" ]]; then
-      echo "Running post-build command: ${build_post_cmd}" >&2
+      echo "Running post-build command…" >&2
       _worldbuilder_run_cmd "$build_post_cmd"
     fi
 

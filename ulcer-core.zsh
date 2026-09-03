@@ -74,11 +74,71 @@ function load_option_envs {
   done
 }
 
+# Machine-readable options implemented by task_runner itself.
+function ucr_spec_global {
+  reply=($'opt\thelp\tflag\tdescription=Show help'
+         $'opt\tsec\tvalue\tdescription=Load configuration section')
+}
+
+# A task is public when it has a matching help function. This keeps helpers,
+# metadata functions, and other implementation details out of dispatch.
+function ucr_task_functions {
+  local base=${(L)argv0} fn task name
+  for fn in ${(@ok)functions[(I)${base}_help_*]}; do
+    task=${fn#${base}_help_}
+    name=${base}_${task}
+    [[ -n ${functions[$name]} ]] && print -r -- $name
+  done
+}
+
+function ucr_spec_for {
+  reply=()
+  [[ -n ${functions[$1]} ]] && { $1; reply=(${reply[@]}); }
+}
+
+function ucr_validate_specs {
+  local record type name kind attr key value optkey passthrough
+  local -a fields
+  for record in "${ucr_spec_records[@]}"; do
+    fields=("${(@ps:\t:)record}")
+    type=${fields[1]}
+    if [[ $type == opt ]]; then
+      name=${fields[2]}; kind=${fields[3]}; optkey=$name
+      for attr in ${fields[4,-1]}; do
+        [[ ${attr%%=*} == alias && -v ucr_opts[${attr#*=}] ]] && optkey=${attr#*=}
+      done
+      [[ -v ucr_opts[$optkey] ]] || continue
+      if [[ $kind == value && ( ${ucr_opts[$optkey]} == true || ${ucr_opts[$optkey]} == 1 ) ]]; then
+        echo "Option --$name requires a value" >&2; return 2
+      fi
+      for attr in ${fields[4,-1]}; do
+        key=${attr%%=*}; value=${attr#*=}
+        if [[ $key == enum && ! " ${value//,/ } " =~ " ${ucr_opts[$optkey]} " ]] ||
+           [[ $key == regex && ! ${ucr_opts[$optkey]} =~ $value ]]; then
+          echo "Option --$name has invalid value: ${ucr_opts[$optkey]}" >&2; return 2
+        fi
+      done
+    elif [[ $type == arg ]]; then
+      [[ ${fields[3]} == task || ${fields[3]} == key=value ]] && continue
+      if [[ ${fields[4]} == required && $# -lt ${fields[2]} ]]; then
+        echo "Missing required argument: ${fields[3]}" >&2; return 2
+      fi
+      for attr in ${fields[5,-1]}; do
+        [[ ${attr%%=*} == passthrough && ${attr#*=} == true ]] && passthrough=true
+      done
+    fi
+  done
+  [[ ${ucr_spec_has_task:-false} != true || ( $passthrough == true && ${ucr_spec_passthrough:-false} == true ) || $# -le ${ucr_spec_max_positionals:-0} ]] || {
+    echo "Too many positional arguments" >&2; return 2
+  }
+}
+
 # Scan arguments and pull out options and envs, then find the function to call, and call it.
-# This is most of what ucr is.
+# This is most of ucr.
 function task_runner {
   local leftovers=()
   local double_dash=false
+  typeset -g ucr_spec_passthrough=false
 
   # echo ": task_runner ${(j:^:)@}" >&2
   # First pass, look for long options, short options, and env pairs
@@ -86,6 +146,7 @@ function task_runner {
     # echo ":check: $arg" >&2
     if [[ "$double_dash" = "true" ]]; then
       leftovers[${#leftovers}+1]=$arg
+      ucr_spec_passthrough=true
     elif [[ "$arg" =~ "^--$" ]]; then
       double_dash=true
     elif [[ "$arg" =~ "^--sec=(.*)$" ]]; then
@@ -131,8 +192,13 @@ function task_runner {
 
   load_option_envs
 
-  # Second pass, look for functions
-  local func_list=(${(ok)functions[(I)${(L)argv0}_*]})
+  # Second pass, look for public tasks and their help commands.
+  local func_list=(${(f)"$(ucr_task_functions)"})
+  [[ -n ${functions[${(L)argv0}_help]} ]] && func_list+=(${(L)argv0}_help)
+  local fn
+  for fn in ${(f)"$(ucr_task_functions)"}; do
+    func_list+=(${(L)argv0}_help_${fn#${(L)argv0}_})
+  done
   local remaining=()
   local try_cmd
 
@@ -151,7 +217,26 @@ function task_runner {
     try_cmd=${(L)argv0}_function_not_found
   fi
 
-  # echo ":do " $try_cmd "${(j:*:)remaining}" "!" >&2
+  local task_spec=$try_cmd
+  [[ $task_spec == ${(L)argv0}_help_* ]] && task_spec=${(L)argv0}_${task_spec#${(L)argv0}_help_}
+  ucr_spec_records=()
+  ucr_spec_for ucr_spec_global; ucr_spec_records+=(${reply[@]})
+  ucr_spec_for ${(L)argv0}_spec; ucr_spec_records+=(${reply[@]})
+  ucr_spec_for ${(L)argv0}_spec_${task_spec#${(L)argv0}_}; ucr_spec_records+=(${reply[@]})
+  typeset -g ucr_spec_has_task=false
+  [[ ${#reply} -gt 0 ]] && ucr_spec_has_task=true
+  ucr_spec_max_positionals=0
+  local rec pos
+  local -a rec_fields
+  for rec in "${ucr_spec_records[@]}"; do
+    rec_fields=("${(@ps:\t:)rec}")
+    [[ ${rec_fields[1]} == arg ]] || continue
+    [[ ${rec_fields[3]} == task || ${rec_fields[3]} == key=value ]] && continue
+    pos=${rec_fields[2]}
+    (( pos > ucr_spec_max_positionals )) && ucr_spec_max_positionals=$pos
+  done
+  [[ $try_cmd == ${(L)argv0}_help_* ]] || ucr_validate_specs "${remaining[@]}" || return
+
   $try_cmd "${remaining[@]}"
 }
 
@@ -303,13 +388,14 @@ function ${(L)argv0}_help_tasks {
   echo "  Optionally filter by a regex or prefix."
 }
 function ${(L)argv0}_tasks {
-  local filter="^${(L)argv0}_(?!help_).*"
+  local filter="^${(L)argv0}_"
   if [[ -n "$ucr_opts[filter]" ]]; then
     filter="^${(L)argv0}_${ucr_opts[filter]}"
   elif [[ $# -gt 0 ]]; then
     filter="^${(L)argv0}_${@// /_}"
   fi
-  for fn in ${(@ok)functions[(I)${(L)argv0}_*]}; do
+  local fn
+  for fn in ${(f)"$(ucr_task_functions)"}; do
     [[ $fn =~ "$filter" ]] && echo ${${fn#${(L)argv0}_}//_/ }
   done
 }
@@ -375,6 +461,106 @@ function ${(L)argv0}_config_sections {
   else
     echo "(no config file found at $config_location)" >&2
   fi
+}
+
+# Generate a standalone completion file. Providers are emitted as runtime
+# actions so generating the file does not call them.
+function ${(L)argv0}_help_completion {
+  echo "${(L)argv0} completion"
+  echo "  Generate a zsh completion function."
+}
+function ${(L)argv0}_completion {
+  local base=${(L)argv0} fn task rec attr key value desc kind completion prefix part arg_pos
+  local -a candidates specs fields parts root_children
+  local -A children
+  for fn in ${(f)"$(ucr_task_functions)"}; do
+    task=${fn#${base}_}
+    candidates+=("$task")
+    prefix=
+    parts=(${(s:_:)task})
+    for part in ${parts[@]}; do
+      if [[ -n $prefix ]]; then
+        [[ " ${children[$prefix]} " == *" $part "* ]] || children[$prefix]+="${children[$prefix]:+ }$part"
+      else
+        [[ ${root_children[(Ie)$part]} -eq 0 ]] && root_children+=($part)
+      fi
+      prefix=${prefix:+${prefix}_}$part
+    done
+  done
+  print -r -- "#compdef $base"
+  print -r -- "_${base}() {"
+  print -r -- "  local task_path word part pfx depth=1"
+  print -r -- "  local -a specs parts"
+  print -r -- "  local -A children"
+  print -r -- "  children=("
+  for prefix in ${(k)children}; do
+    [[ -n $prefix && -n ${children[$prefix]} ]] || continue
+    printf '    %q %q\n' "$prefix" "${children[$prefix]}"
+  done
+  print -r -- "  )"
+  print -r -- "  specs=("
+  printf '    %q\n' '--help[Show help]' '--sec=[Load configuration section]:section:'
+  printf '    %q\n' "1:task:(${(j: :)root_children})"
+  print -r -- "  )"
+  print -r -- '  for word in "${words[@]:1}"; do'
+  print -r -- '    [[ -z $word || $word == -* || $word == *=* ]] || task_path=${task_path:+${task_path}_}$word'
+  print -r -- '  done'
+
+  # Walk every ancestor prefix of task_path and add its positional spec.
+  # A single case/esac can't do this: it only ever fires one branch, so
+  # once you're more than one level deep the shallower positions' specs
+  # never get added and _arguments can no longer parse the word list.
+  print -r -- '  parts=(${(s:_:)task_path})'
+  print -r -- '  for part in "${parts[@]}"; do'
+  print -r -- '    pfx=${pfx:+${pfx}_}$part'
+  print -r -- '    (( depth++ ))'
+  print -r -- '    [[ -n ${children[$pfx]} ]] && specs+=("${depth}:${part}:(${children[$pfx]})")'
+  print -r -- '  done'
+  print -r -- '  case $task_path in'
+
+  # Emit options for leaves that declare them.
+  for task in ${candidates[@]}; do
+    ucr_spec_for ${base}_spec_${task// /_}
+    [[ ${#reply} -gt 0 ]] || continue
+    print -r -- "    ${task// /_}|${task// /_}_*)"
+    parts=(${(s:_:)task})
+    for rec in ${reply[@]}; do
+      fields=("${(@ps:\t:)rec}")
+      if [[ ${fields[1]} == arg ]]; then
+        completion=
+        for attr in ${fields[5,-1]}; do
+          key=${attr%%=*}; value=${attr#*=}
+          [[ $key == completion ]] && completion=$value
+        done
+        (( arg_pos = fields[2] + ${#parts} ))
+        local arg_spec="${arg_pos}:"
+        [[ ${fields[4]} == optional ]] && arg_spec+=:
+        arg_spec+="${fields[3]}:"
+        [[ -n $completion && $completion != freeform ]] &&
+          arg_spec+="{compadd \"\${expl[@]}\" -- \"\${(@f)\$(${completion} 2>/dev/null)}\"}"
+        printf '      specs+=(%q)\n' "$arg_spec"
+        continue
+      fi
+      [[ ${fields[1]} == opt ]] || continue
+      kind=${fields[3]}; desc=
+      for attr in ${fields[4,-1]}; do
+        key=${attr%%=*}; value=${attr#*=}
+        [[ $key == description ]] && desc=$value
+      done
+      if [[ $kind == value ]]; then
+        [[ -n $desc ]] && desc="[$desc]" || desc='[value]'
+        printf '      specs+=(%q)\n' "--${fields[2]}=${desc}:${fields[2]}:"
+      else
+        [[ -n $desc ]] && desc="[$desc]" || desc=''
+        printf '      specs+=(%q)\n' "--${fields[2]}${desc}"
+      fi
+    done
+    print -r -- '      ;;'
+  done
+  print -r -- '  esac'
+  print -r -- '  _arguments -s "${specs[@]}"'
+  print -r -- '}'
+  print -r -- "compdef _${base} $base"
 }
 
 ##############################################################################

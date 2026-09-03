@@ -151,11 +151,11 @@ EOF
     BeforeEach 'tmp=$(mktemp -d)'
     AfterEach 'rm -rf "$tmp"'
 
-    It 'lists defined tasks and supports filtering'
-      When call zsh -f -c 'argv0=fixture; HOME=/nonexistent; source "$1"; function fixture_alpha { : }; function fixture_parent_child { : }; function fixture_help_hidden { : }; fixture_tasks' zsh "$CORE"
+    It 'lists only public tasks and supports filtering'
+      When call zsh -f -c 'argv0=fixture; HOME=/nonexistent; source "$1"; function fixture_help_alpha { : }; function fixture_alpha { : }; function fixture_help_parent_child { : }; function fixture_parent_child { : }; function fixture_private { : }; fixture_tasks' zsh "$CORE"
       The output should include 'alpha'
       The output should include 'parent child'
-      The output should not include 'help hidden'
+      The output should not include 'private'
     End
 
     It 'reports parsed environment, options, and arguments as state'
@@ -198,6 +198,32 @@ EOF
     End
   End
 
+  Describe 'completion'
+    It 'lists every child once per prefix, without duplicates'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_foo_bar_baz { : }; function fixture_foo_bar_baz { : }; function fixture_help_foo_bar_qux { : }; function fixture_foo_bar_qux { : }; function fixture_help_foo_other { : }; function fixture_foo_other { : }; fixture_completion' zsh "$CORE"
+      The output should include 'foo bar\ other'
+      The output should not include 'bar\ bar'
+    End
+
+    It 'accumulates a positional spec for every ancestor prefix, not just the deepest one'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_foo_bar_baz { : }; function fixture_foo_bar_baz { : }; function fixture_help_foo_bar_qux { : }; function fixture_foo_bar_qux { : }; function fixture_help_foo_other { : }; function fixture_foo_other { : }; function _arguments { shift; print -l -- "$@" }; function compdef { : }; eval "$(fixture_completion)"; words=(fixture foo bar ""); _fixture' zsh "$CORE"
+      The output should include '2:foo:(bar other)'
+      The output should include '3:bar:(baz qux)'
+    End
+
+    It 'still attaches a leaf task option alongside the accumulated positional specs'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_foo_bar_baz { : }; function fixture_foo_bar_baz { : }; function fixture_help_foo_bar_qux { : }; function fixture_foo_bar_qux { : }; function fixture_help_foo_other { : }; function fixture_foo_other { : }; function fixture_spec_foo_bar_baz { reply=($'"'"'opt\tflag\tvalue\tdescription=A flag value'"'"') }; function _arguments { shift; print -l -- "$@" }; function compdef { : }; eval "$(fixture_completion)"; words=(fixture foo bar baz ""); _fixture' zsh "$CORE"
+      The output should include '2:foo:(bar other)'
+      The output should include '3:bar:(baz qux)'
+      The output should include '--flag=[A flag value]:flag:'
+    End
+
+    It 'uses command-backed positional completion'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { : }; function fixture_spec_echo { reply=($'"'"'arg\t1\tname\trequired\tcompletion=fixture candidates'"'"') }; function _arguments { shift; print -l -- "$@" }; function compdef { : }; eval "$(fixture_completion)"; words=(fixture echo ""); _fixture' zsh "$CORE"
+      The output should include '2:name:{compadd "${expl[@]}" -- "${(@f)$(fixture candidates 2>/dev/null)}"}'
+    End
+  End
+
   Describe 'v_curl'
     BeforeEach 'make_curl_stubs'
     AfterEach 'rm -rf "$tmp"'
@@ -226,13 +252,13 @@ EOF
   End
 
   Describe 'task_runner'
-    It 'dispatches the longest task path and preserves arguments'
-      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_echo { print -r -- "echo:$*:$ucr_opts[name]" }; function fixture_echo_deep { print -r -- "deep:$*" }; task_runner echo deep --name=value one two' zsh "$CORE"
+    It 'dispatches the longest public task path and preserves arguments'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- "echo:$*:$ucr_opts[name]" }; function fixture_help_echo_deep { : }; function fixture_echo_deep { print -r -- "deep:$*" }; task_runner echo deep --name=value one two' zsh "$CORE"
       The output should equal 'deep:one two'
     End
 
     It 'parses boolean, grouped short, env, and passthrough arguments'
-      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_echo { print -r -- "$*|$ucr_opts[dry]|$ucr_opts[v]|$FIXTURE_KEY" }; task_runner -vv --dry KEY=value echo -- trailing' zsh "$CORE"
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- "$*|$ucr_opts[dry]|$ucr_opts[v]|$FIXTURE_KEY" }; task_runner -vv --dry KEY=value echo -- trailing' zsh "$CORE"
       The output should equal 'trailing|true|2|value'
     End
 
@@ -242,8 +268,37 @@ EOF
     End
 
     It 'dispatches --help after a task path to its task help'
-      When call zsh -f -c 'argv0=fixture; HOME=/nonexistent; source "$1"; function fixture_help_echo { print -r -- "echo help" }; task_runner echo --help' zsh "$CORE"
+      When call zsh -f -c 'argv0=fixture; HOME=/nonexistent; source "$1"; function fixture_echo { : }; function fixture_help_echo { print -r -- "echo help" }; task_runner echo --help' zsh "$CORE"
       The output should equal 'echo help'
+    End
+
+    It 'rejects a value option without a value'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- ran }; task_runner echo --sec' zsh "$CORE"
+      The status should equal 2
+      The stderr should include 'Option --sec requires a value'
+    End
+
+    It 'validates task option values from their specification'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- ran }; function fixture_spec_echo { reply=($'"'"'opt\tmode\tvalue\tenum=fast,slow'"'"'); }; task_runner echo --mode=invalid' zsh "$CORE"
+      The status should equal 2
+      The stderr should include 'Option --mode has invalid value: invalid'
+    End
+
+    It 'requires declared positional arguments'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- ran }; function fixture_spec_echo { reply=($'"'"'arg\t1\tname\trequired'"'"'); }; task_runner echo' zsh "$CORE"
+      The status should equal 2
+      The stderr should include 'Missing required argument: name'
+    End
+
+    It 'rejects positional arguments beyond a task specification'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- ran }; function fixture_spec_echo { reply=($'"'"'arg\t1\tname\trequired'"'"'); }; task_runner echo one two' zsh "$CORE"
+      The status should equal 2
+      The stderr should include 'Too many positional arguments'
+    End
+
+    It 'allows passthrough arguments declared by a task specification'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- "$*" }; function fixture_spec_echo { reply=($'"'"'arg\t1\tcommand\trequired\tpassthrough=true'"'"'); }; task_runner echo command -- --flag value' zsh "$CORE"
+      The output should equal 'command --flag value'
     End
 
     It 'uses the not-found task for unknown commands'

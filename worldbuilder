@@ -43,7 +43,7 @@ worldbuilder <task> [<args>]
     WORLDBUILDER_HOST
       A space separated list of hosts to inject images into.
     WORLDBUILDER_SKIPLIST
-      A comma separated list of sections to skip when using 'worldbuilder foreach' or 'worldbuilder all'.
+      A comma separated list of sections to skip when using 'worldbuilder all'.
 EOS
 }
 
@@ -254,6 +254,7 @@ function worldbuilder_update {
       # …and put things back
       [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
       [[ -n "$needs_stash" ]] && git stash pop
+      return 0
     fi
   )
 }
@@ -450,7 +451,7 @@ function worldbuilder_build {
 
     if [[ -n "$build_pre_cmd" ]]; then
       echo "Running pre-build command…" >&2
-      _worldbuilder_run_cmd "$build_pre_cmd"
+      _worldbuilder_run_cmd "$build_pre_cmd" || exit $?
     fi
 
     if [[ "$type" == "docker" ]]; then
@@ -459,20 +460,17 @@ function worldbuilder_build {
         --ssh default \
         --tag "${image}" \
         --platform="${platform}" \
-        .
-      local exit_code=$?
-      if [[ $exit_code = 0 ]]; then
-        mkdir -p "${base}/${imagesDir}"
-        $docker_tool save "${image}" >${base}/${imagesDir}/${${image/%:*/}:t}.tar
-      fi
+        . || exit $?
+      mkdir -p "${base}/${imagesDir}"
+      $docker_tool save "${image}" >${base}/${imagesDir}/${${image/%:*/}:t}.tar || exit $?
 
     elif [[ "$type" == "build" ]]; then
       local build_target=${base}/${imagesDir}/${${image/%:*/}:t}.zip
       mkdir -p "${base}/${imagesDir}"
       if [[ -n "$build_cmd" ]]; then
-        _worldbuilder_run_cmd "$build_cmd" "$build_target"
+        _worldbuilder_run_cmd "$build_cmd" "$build_target" || exit $?
       else
-        zip -r -FS "$build_target" . -x "*.git*"
+        zip -r -FS "$build_target" . -x "*.git*" || exit $?
       fi
 
     else
@@ -482,11 +480,12 @@ function worldbuilder_build {
 
     if [[ -n "$build_post_cmd" ]]; then
       echo "Running post-build command…" >&2
-      _worldbuilder_run_cmd "$build_post_cmd"
+      _worldbuilder_run_cmd "$build_post_cmd" || exit $?
     fi
 
     [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
     [[ -n "$needs_stash" ]] && git stash pop
+    return 0
   )
 }
 
@@ -549,51 +548,33 @@ function worldbuilder_inject {
   zargs -P 5 -l 1 -- ${=WORLDBUILD_HOST} -- upload_one
 }
 
-function worldbuilder_help_foreach {
-  cat <<EOF
-worldbuilder foreach <internal task name> [--time] [--verbose] [--show]
-  Runs a task for each section in the worldbuilder file.
-
-  WORLDBUILDER_SKIPLIST can be set to a comma separated list of sections to skip.
-EOF
-}
-function worldbuilder_foreach {
-  local start=$(date +%s)
-  local cmd=${1:?Need a command to run}
-  local skiplist=(${(z)${(s:,:)${WORLDBUILDER_SKIPLIST}}})
-  if [[ -n "${ucr_opts[time]}" ]]; then
-    date +%Y-%m-%dT%H:%M:%S%z
-  fi
-
-  for sec in $(worldbuilder_sections); do
-    if [[ " ${skiplist[@]} " =~ " ${sec} " ]]; then
-      continue
-    fi
-    if [[ -n "${ucr_opts[verbose]}" || -n "${ucr_opts[show]}" ]]; then
-      local msg=" Running: $cmd '$sec' "
-      print -r - ${(l[COLUMNS/2][=]r[COLUMNS-COLUMNS/2][=])msg}
-    fi
-
-    # the `'` in front of the $sec is to enable fzf exact mode.
-    $cmd "'$sec"
-
-  done
-
-  if [[ -n "${ucr_opts[time]}" ]]; then
-    date +%Y-%m-%dT%H:%M:%S%z
-    local stop=$(date +%s)
-    echo "Took: $((stop - start))"
-  fi
-}
-
 function worldbuilder_help_all {
   cat <<EOF
-worldbuilder all <task> [--time] [--verbose] [--show]
-  Runs a task for each section in the worldbuilder file.
+worldbuilder all <task> [options] [-- <task options>]
+  Runs a task across all sections in the worldbuilder file in parallel.
   Tasks are: audit, build, clone, inject, update
+
+  Options:
+    -j, --jobs=<N>   Max concurrent jobs (default: 4 or WORLDBUILDER_JOBS)
+    --fail-fast      Stop scheduling new tasks if any task fails
+    --keep-logs      Retain task log files even on success
+    --show           Stream output sequentially without parallel live dashboard
+    --verbose        Show detailed output
+    --time           Show timing information
 
   WORLDBUILDER_SKIPLIST can be set to a comma separated list of sections to skip.
 EOF
+}
+function worldbuilder_spec_all {
+  reply=($'arg\t1\taction\trequired\tcompletion=audit build clone inject update'
+         $'opt\tjobs\tvalue\tcompletion=freeform\tdescription=Max concurrent jobs'
+         $'opt\tj\tvalue\tcompletion=freeform\tdescription=Max concurrent jobs (alias)'
+         $'opt\tkeep-logs\tflag\tdescription=Keep log files for successful runs'
+         $'opt\tfail-fast\tflag\tdescription=Stop queue on first failure'
+         $'opt\ttime\tflag\tdescription=Show timing information'
+         $'opt\tshow\tflag\tdescription=Show streaming output'
+         $'opt\tverbose\tflag\tdescription=Show verbose output'
+         $'arg\t2\textra\toptional\tpassthrough=true')
 }
 function worldbuilder_all {
   local action=${1:-build}
@@ -602,7 +583,239 @@ function worldbuilder_all {
     echo "Unknown action: $action" >&2
     exit 1
   fi
-  worldbuilder_foreach worldbuilder_${action}
+  shift
+
+  local start_time=$(date +%s)
+  local skiplist=(${(z)${(s:,:)${WORLDBUILDER_SKIPLIST}}})
+  local all_sections=()
+  local sec=""
+  for sec in $(worldbuilder_sections); do
+    if [[ ! " ${skiplist[@]} " =~ " ${sec} " ]]; then
+      all_sections+=("$sec")
+    fi
+  done
+
+  if (( ${#all_sections} == 0 )); then
+    echo "No sections to run."
+    return 0
+  fi
+
+  # Concurrency settings
+  local max_jobs=${ucr_opts[jobs]:-${ucr_opts[j]:-${WORLDBUILDER_JOBS:-4}}}
+  [[ "$max_jobs" =~ '^[0-9]+$' && $max_jobs -gt 0 ]] || max_jobs=4
+
+  local fail_fast=false
+  [[ -n "${ucr_opts[fail-fast]}" ]] && fail_fast=true
+
+  local keep_logs=false
+  [[ -n "${ucr_opts[keep-logs]}" ]] && keep_logs=true
+
+  local show_stream=false
+  [[ -n "${ucr_opts[show]}" || -n "${ucr_opts[verbose]}" ]] && show_stream=true
+
+  # If show_stream is requested, sequential streaming mode:
+  if [[ "$show_stream" == "true" ]]; then
+    local failed_count=0
+    for sec in "${all_sections[@]}"; do
+      local msg=" Running: worldbuilder_${action} '$sec' "
+      print -r - ${(l[COLUMNS/2][=]r[COLUMNS-COLUMNS/2][=])msg}
+      worldbuilder_${action} "'$sec" "$@"
+      local ec=$?
+      if (( ec != 0 )); then
+        (( failed_count++ ))
+        [[ "$fail_fast" == "true" ]] && break
+      fi
+    done
+    if [[ -n "${ucr_opts[time]}" ]]; then
+      local stop_time=$(date +%s)
+      echo "Took: $((stop_time - start_time))s"
+    fi
+    return $(( failed_count > 0 ? 1 : 0 ))
+  fi
+
+  local is_tty=false
+  [[ -t 1 ]] && is_tty=true
+
+  local queued_sections=("${all_sections[@]}")
+  typeset -A job_sec
+  typeset -A job_log
+  typeset -A job_start
+  typeset -A job_dur
+  typeset -A job_failed_log
+
+  local passed_sections=()
+  local failed_sections=()
+  local pid="" cur_sec="" logfile="" now=0 start=0 dur=0 exit_code=0 i=0 line=""
+
+  # Clean up handler on signal
+  local _cleanup
+  _cleanup() {
+    [[ "$is_tty" == "true" ]] && print -n "\e[?25h"
+    local pids=(${(k)job_sec})
+    if (( ${#pids} > 0 )); then
+      kill -TERM "${pids[@]}" 2>/dev/null
+    fi
+    if [[ "$keep_logs" != "true" ]]; then
+      local l
+      for l in "${job_log[@]}"; do
+        rm -f "$l"
+      done
+    fi
+  }
+  trap '_cleanup; return 130' INT
+  trap '_cleanup; return 143' TERM
+
+  [[ "$is_tty" == "true" ]] && print -n "\e[?25l"
+
+  local spinner_chars=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+  local spin_idx=1
+  local prev_rendered_lines=0
+
+  if [[ "$is_tty" != "true" ]]; then
+    print -P "%F{cyan}==>%f Running %Bworldbuilder ${action}%b across ${#all_sections} targets (%F{yellow}jobs: ${max_jobs}%f)"
+  fi
+
+  while (( ${#queued_sections} > 0 || ${#job_sec} > 0 )); do
+    # 1. Spawn workers up to max_jobs
+    while (( ${#job_sec} < max_jobs && ${#queued_sections} > 0 )); do
+      cur_sec=$queued_sections[1]
+      shift queued_sections
+      logfile=$(mktemp "${TMPDIR:-/tmp}/wb-${action}-${cur_sec}.XXXXXX")
+      now=$(date +%s)
+
+      (
+        worldbuilder_${action} "'$cur_sec" "$@"
+      ) >& "$logfile" &
+      pid=$!
+
+      job_sec[$pid]=$cur_sec
+      job_log[$pid]=$logfile
+      job_start[$pid]=$now
+    done
+
+    # 2. Check for completed jobs
+    for pid in ${(k)job_sec}; do
+      if ! kill -0 $pid 2>/dev/null; then
+        wait $pid
+        exit_code=$?
+        sec=$job_sec[$pid]
+        logfile=$job_log[$pid]
+        start=$job_start[$pid]
+        dur=$(( $(date +%s) - start ))
+        job_dur[$sec]=$dur
+
+        if (( exit_code == 0 )); then
+          passed_sections+=("$sec")
+          [[ "$keep_logs" != "true" ]] && rm -f "$logfile"
+          if [[ "$is_tty" != "true" ]]; then
+            print -P "%F{green}[✓]%f ${sec} (done in ${dur}s)"
+          fi
+        else
+          failed_sections+=("$sec")
+          job_failed_log[$sec]=$logfile
+          if [[ "$is_tty" != "true" ]]; then
+            print -P "%F{red}[✗]%f ${sec} (failed in ${dur}s, exit ${exit_code}, log: ${logfile})"
+          fi
+          if [[ "$fail_fast" == "true" ]]; then
+            queued_sections=()
+          fi
+        fi
+
+        unset "job_sec[$pid]"
+        unset "job_log[$pid]"
+        unset "job_start[$pid]"
+      fi
+    done
+
+    # 3. Render TTY dashboard if interactive
+    if [[ "$is_tty" == "true" ]]; then
+      local lines_to_render=()
+      local term_cols=${COLUMNS:-80}
+
+      lines_to_render+=("$(print -P "%F{cyan}==>%f Running %Bworldbuilder ${action}%b (%F{yellow}jobs: ${max_jobs}%f, %F{green}${#passed_sections} passed%f, %F{red}${#failed_sections} failed%f, ${#queued_sections} queued)")")
+
+      local cur_spin=${spinner_chars[spin_idx]}
+      spin_idx=$(( (spin_idx % ${#spinner_chars}) + 1 ))
+
+      local now=$(date +%s)
+      for pid in ${(k)job_sec}; do
+        local sec=$job_sec[$pid]
+        local logfile=$job_log[$pid]
+        local elapsed=$(( now - job_start[$pid] ))
+        local last_line=""
+        if [[ -f "$logfile" ]]; then
+          last_line=$(tail -n 1 "$logfile" 2>/dev/null | tr -d '\r\n')
+        fi
+        local prefix=" [${cur_spin}] ${sec} (${elapsed}s)"
+        local line_str="${prefix}"
+        if [[ -n "$last_line" ]]; then
+          line_str="${prefix} > ${last_line}"
+        fi
+        if (( ${#line_str} >= term_cols )); then
+          line_str="${line_str[1,term_cols-4]}..."
+        fi
+        lines_to_render+=("$line_str")
+      done
+
+      if (( prev_rendered_lines > 0 )); then
+        print -n "\e[${prev_rendered_lines}A\r\e[J"
+      fi
+
+      for line in "${lines_to_render[@]}"; do
+        print -r -- "$line"
+      done
+      prev_rendered_lines=${#lines_to_render}
+
+      sleep 0.1
+    else
+      sleep 0.2
+    fi
+  done
+
+  # Clear TTY dashboard and restore cursor
+  if [[ "$is_tty" == "true" ]]; then
+    if (( prev_rendered_lines > 0 )); then
+      print -n "\e[${prev_rendered_lines}A\r\e[J"
+    fi
+    print -n "\e[?25h"
+  fi
+
+  trap - INT TERM
+
+  local stop_time=$(date +%s)
+  local total_dur=$(( stop_time - start_time ))
+
+  # In TTY mode, print completed items table
+  if [[ "$is_tty" == "true" ]]; then
+    for sec in "${passed_sections[@]}"; do
+      print -P "%F{green}[✓]%f ${sec} (done in ${job_dur[$sec]:-0}s)"
+    done
+
+    for sec in "${failed_sections[@]}"; do
+      print -P "%F{red}[✗]%f ${sec} (failed in ${job_dur[$sec]:-0}s, log: ${job_failed_log[$sec]})"
+    done
+  fi
+
+  # Dump failure details
+  if (( ${#failed_sections} > 0 )); then
+    print ""
+    print -P "%F{red}%B=== Failure Output Summary ===%b%f"
+    for sec in "${failed_sections[@]}"; do
+      local flog=${job_failed_log[$sec]}
+      print -P "%F{yellow}--- [${sec}] (log: ${flog}) ---%f"
+      if [[ -f "$flog" ]]; then
+        tail -n 25 "$flog"
+      fi
+      print ""
+    done
+  fi
+
+  print -P "%F{cyan}==>%f Finished %Bworldbuilder ${action}%b: %F{green}${#passed_sections} passed%f, %F{red}${#failed_sections} failed%f (total: ${total_dur}s)"
+
+  if (( ${#failed_sections} > 0 )); then
+    return 1
+  fi
+  return 0
 }
 
 ##############################################################################

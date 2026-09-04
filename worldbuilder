@@ -212,14 +212,20 @@ function worldbuilder_clone {
 
 function worldbuilder_help_update {
   cat <<EOF
-worldbuilder update <section>
+worldbuilder update <section> [options] [commit]
   Fetches the latest changes for the section.
-  This will stash and switch branches if the declared commit isn't the current one,
-  and return back to the original branch.
+  If commit/branch is specified, updates or fetches that commit instead of the one in the worldbuilder file.
+  Fast-forwards local branches without switching HEAD if possible, or stashes and switches if needed.
+
+  Options:
+    -f, --force    Force overwrite local branch to match remote (useful when upstream rebased)
 EOF
 }
 function worldbuilder_spec_update {
-  reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections')
+  reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections'
+         $'opt\tforce\tflag\tdescription=Force overwrite local branch to match remote'
+         $'opt\tf\tflag\tdescription=Force overwrite local branch to match remote (alias)'
+         $'arg\t2\tcommit\toptional\tcompletion=freeform')
 }
 function worldbuilder_update {
   want_envs WORLDBUILDER_FILE "^.+$"
@@ -227,34 +233,58 @@ function worldbuilder_update {
   local dir commit
   _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir commit
   want_envs dir "^.+$" commit "^.*$"
+  [[ $# -gt 1 ]] && commit=${2:-$commit}
 
-  # TODO: Also pull some common branches (stable)
-  # OR add arg/option to work on a specific branch. (override $commit)
-  # If "pulling" multiple, do we really want git-pull? or for the others do we really want to move the local branch to match
-  # the remote?  Most notable with our develop branch and that you'll likely need to force replace that anyways.
+  local force=false
+  [[ -n "${ucr_opts[force]}" || -n "${ucr_opts[f]}" ]] && force=true
 
   (
     cd ${dir}
-    git fetch --all
+    git fetch --all --prune
 
-    # if commit is in heads, then checkout that branch and do a pull
-    local heads=($(git for-each-ref --format='%(refname:short)' refs/heads/))
-    if [[ " ${heads[@]} " =~ " ${commit} " ]]; then
-      # Remember where things are before switching and pulling
-      local remember=""
-      local needs_stash=""
-      needs_stash="$(git status --untracked-files=no --porcelain)"
-      [[ -n "$needs_stash" ]] && git stash
+    [[ -z "$commit" ]] && return 0
 
-      remember=$(git symbolic-ref --quiet HEAD 2>/dev/null)
-      git checkout "${commit}"
+    local current_branch=$(git symbolic-ref --short -q HEAD 2>/dev/null)
+    local remote=$(git config "branch.${commit}.remote" 2>/dev/null)
+    [[ -z "$remote" ]] && remote=origin
 
-      git pull
+    if [[ "$current_branch" == "$commit" ]]; then
+      if [[ "$force" == "true" ]]; then
+        git reset --hard "$remote/$commit"
+      else
+        local needs_stash=""
+        needs_stash="$(git status --untracked-files=no --porcelain)"
+        [[ -n "$needs_stash" ]] && git stash
 
-      # …and put things back
-      [[ -n "$remember" ]] && git checkout "${remember#refs/heads/}"
-      [[ -n "$needs_stash" ]] && git stash pop
-      return 0
+        git pull
+
+        [[ -n "$needs_stash" ]] && git stash pop
+      fi
+    else
+      local refspec="${commit}:${commit}"
+      [[ "$force" == "true" ]] && refspec="+${refspec}"
+
+      # Try updating local branch directly without checkout
+      if ! git fetch "$remote" "$refspec" 2>/dev/null; then
+        # Fallback to checkout + pull/reset if direct update fails
+        local heads=($(git for-each-ref --format='%(refname:short)' refs/heads/))
+        if [[ " ${heads[@]} " =~ " ${commit} " ]]; then
+          local remember="$current_branch"
+          local needs_stash=""
+          needs_stash="$(git status --untracked-files=no --porcelain)"
+          [[ -n "$needs_stash" ]] && git stash
+
+          git checkout "${commit}"
+          if [[ "$force" == "true" ]]; then
+            git reset --hard "$remote/$commit"
+          else
+            git pull
+          fi
+
+          [[ -n "$remember" ]] && git checkout "${remember}"
+          [[ -n "$needs_stash" ]] && git stash pop
+        fi
+      fi
     fi
   )
 }

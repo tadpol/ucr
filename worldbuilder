@@ -383,7 +383,7 @@ function worldbuilder_audit {
   want_envs dir "^.+$" image "^.+$" commit "^.*$" repo "^.+$"
 
   local base=$PWD
-  local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
+  local imagesDir=_images_${${${WORLDBUILDER_FILE:t}#wb_}:r}
 
   local extra_args=()
   [[ -f "$HOME/.config/trivy/trivy.yaml" ]] && extra_args+=(--config "$HOME/.config/trivy/trivy.yaml")
@@ -459,7 +459,7 @@ function worldbuilder_build {
   want_envs dir "^.+$" image "^.+$" type "^.+$" commit "^.*$" repo "^.+$"
 
   local base=$PWD
-  local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
+  local imagesDir=_images_${${${WORLDBUILDER_FILE:t}#wb_}:r}
 
   [[ ${ucr_opts[head]} == "true" ]] && commit=""
   [[ -n ${ucr_opts[commit]} ]] && commit=${ucr_opts[commit]}
@@ -536,10 +536,10 @@ function worldbuilder_inject {
   [ -n "${ucr_opts[host]}" ] && export WORLDBUILDER_HOST="${ucr_opts[host]}"
   want_envs WORLDBUILDER_HOST "^[-@._A-Za-z0-9:]+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
-  local imagesDir=_images_${${WORLDBUILDER_FILE#wb_}:r}
+  local imagesDir=_images_${${${WORLDBUILDER_FILE:t}#wb_}:r}
   local image type upload_type dest
 
-  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" image
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom"
   [[ -n "$upload_type" ]] && type=$upload_type
   [[ -z "$type" ]] && type=docker
   want_envs image "^.+$" type "^.+$"

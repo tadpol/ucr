@@ -566,7 +566,7 @@ worldbuilder all <task> [options] [-- <task options>]
 EOF
 }
 function worldbuilder_spec_all {
-  reply=($'arg\t1\taction\trequired\tcompletion=audit build clone inject update'
+  reply=($'arg\t1\taction\trequired\tcompletion=(audit build clone inject update)'
          $'opt\tjobs\tvalue\tcompletion=freeform\tdescription=Max concurrent jobs'
          $'opt\tj\tvalue\tcompletion=freeform\tdescription=Max concurrent jobs (alias)'
          $'opt\tkeep-logs\tflag\tdescription=Keep log files for successful runs'

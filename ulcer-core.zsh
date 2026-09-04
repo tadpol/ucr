@@ -463,6 +463,26 @@ function ${(L)argv0}_config_sections {
   fi
 }
 
+# Build the completion action string for a spec argument or option.
+function _ucr_completion_action {
+  local comp=$1 enum_val=$2
+  if [[ -n $comp ]]; then
+    if [[ $comp == freeform ]]; then
+      print -r -n -- ""
+    elif [[ $comp =~ '^\(.*\)$' ]]; then
+      print -r -n -- "$comp"
+    elif [[ $comp == *,* ]]; then
+      local items=(${(s:,:)comp})
+      print -r -n -- "(${(j: :)items})"
+    else
+      print -r -n -- "{compadd \"\${expl[@]}\" -- \"\${(@f)\$(${comp} 2>/dev/null)}\"}"
+    fi
+  elif [[ -n $enum_val ]]; then
+    local items=(${(s:,:)enum_val})
+    print -r -n -- "(${(j: :)items})"
+  fi
+}
+
 # Generate a standalone completion file. Providers are emitted as runtime
 # actions so generating the file does not call them.
 function ${(L)argv0}_help_completion {
@@ -470,7 +490,7 @@ function ${(L)argv0}_help_completion {
   echo "  Generate a zsh completion function."
 }
 function ${(L)argv0}_completion {
-  local base=${(L)argv0} fn task rec attr key value desc kind completion prefix part arg_pos
+  local base=${(L)argv0} fn task rec attr key value desc kind completion prefix part arg_pos enum_val action
   local -a candidates specs fields parts root_children
   local -A children
   for fn in ${(f)"$(ucr_task_functions)"}; do
@@ -527,29 +547,33 @@ function ${(L)argv0}_completion {
     for rec in ${reply[@]}; do
       fields=("${(@ps:\t:)rec}")
       if [[ ${fields[1]} == arg ]]; then
-        completion=
+        completion=; enum_val=
         for attr in ${fields[5,-1]}; do
           key=${attr%%=*}; value=${attr#*=}
           [[ $key == completion ]] && completion=$value
+          [[ $key == enum ]] && enum_val=$value
         done
         (( arg_pos = fields[2] + ${#parts} ))
         local arg_spec="${arg_pos}:"
         [[ ${fields[4]} == optional ]] && arg_spec+=:
         arg_spec+="${fields[3]}:"
-        [[ -n $completion && $completion != freeform ]] &&
-          arg_spec+="{compadd \"\${expl[@]}\" -- \"\${(@f)\$(${completion} 2>/dev/null)}\"}"
+        action=$(_ucr_completion_action "$completion" "$enum_val")
+        arg_spec+="${action}"
         printf '      specs+=(%q)\n' "$arg_spec"
         continue
       fi
       [[ ${fields[1]} == opt ]] || continue
-      kind=${fields[3]}; desc=
+      kind=${fields[3]}; desc=; completion=; enum_val=
       for attr in ${fields[4,-1]}; do
         key=${attr%%=*}; value=${attr#*=}
         [[ $key == description ]] && desc=$value
+        [[ $key == completion ]] && completion=$value
+        [[ $key == enum ]] && enum_val=$value
       done
+      action=$(_ucr_completion_action "$completion" "$enum_val")
       if [[ $kind == value ]]; then
         [[ -n $desc ]] && desc="[$desc]" || desc='[value]'
-        printf '      specs+=(%q)\n' "--${fields[2]}=${desc}:${fields[2]}:"
+        printf '      specs+=(%q)\n' "--${fields[2]}=${desc}:${fields[2]}:${action}"
       else
         [[ -n $desc ]] && desc="[$desc]" || desc=''
         printf '      specs+=(%q)\n' "--${fields[2]}${desc}"

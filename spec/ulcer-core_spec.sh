@@ -222,6 +222,18 @@ EOF
       When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { : }; function fixture_spec_echo { reply=($'"'"'arg\t1\tname\trequired\tcompletion=fixture candidates'"'"') }; function _arguments { shift; print -l -- "$@" }; function compdef { : }; eval "$(fixture_completion)"; words=(fixture echo ""); _fixture' zsh "$CORE"
       The output should include '2:name:{compadd "${expl[@]}" -- "${(@f)$(fixture candidates 2>/dev/null)}"}'
     End
+
+    It 'supports list-backed positional completion via parentheses and commas'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { : }; function fixture_spec_echo { reply=($'"'"'arg\t1\taction\trequired\tcompletion=(start stop reload)'"'"' $'"'"'arg\t2\tmode\toptional\tcompletion=fast,slow'"'"') }; function _arguments { shift; print -l -- "$@" }; function compdef { : }; eval "$(fixture_completion)"; words=(fixture echo ""); _fixture' zsh "$CORE"
+      The output should include '2:action:(start stop reload)'
+      The output should include '3::mode:(fast slow)'
+    End
+
+    It 'supports enum and list-backed option completion'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { : }; function fixture_spec_echo { reply=($'"'"'opt\tformat\tvalue\tenum=json,yaml\tdescription=Output format'"'"' $'"'"'opt\tspeed\tvalue\tcompletion=(high low)'"'"') }; function _arguments { shift; print -l -- "$@" }; function compdef { : }; eval "$(fixture_completion)"; words=(fixture echo ""); _fixture' zsh "$CORE"
+      The output should include '--format=[Output format]:format:(json yaml)'
+      The output should include '--speed=[value]:speed:(high low)'
+    End
   End
 
   Describe 'v_curl'

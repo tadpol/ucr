@@ -278,6 +278,12 @@ EOF
       The stderr should include 'Option --sec requires a value'
     End
 
+    It 'accepts a value option with value 1'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- "$ucr_opts[count]" }; function fixture_spec_echo { reply=($'"'"'opt\tcount\tvalue'"'"'); }; task_runner echo --count=1' zsh "$CORE"
+      The status should equal 0
+      The output should equal '1'
+    End
+
     It 'validates task option values from their specification'
       When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- ran }; function fixture_spec_echo { reply=($'"'"'opt\tmode\tvalue\tenum=fast,slow'"'"'); }; task_runner echo --mode=invalid' zsh "$CORE"
       The status should equal 2

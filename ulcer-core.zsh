@@ -108,7 +108,7 @@ function ucr_validate_specs {
         [[ ${attr%%=*} == alias && -v ucr_opts[${attr#*=}] ]] && optkey=${attr#*=}
       done
       [[ -v ucr_opts[$optkey] ]] || continue
-      if [[ $kind == value && ( ${ucr_opts[$optkey]} == true || ${ucr_opts[$optkey]} == 1 ) ]]; then
+      if [[ $kind == value && ${ucr_opts[$optkey]} == true ]]; then
         echo "Option --$name requires a value" >&2; return 2
       fi
       for attr in ${fields[4,-1]}; do

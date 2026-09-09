@@ -19,6 +19,13 @@ fi
 ##############################################################################
 # Define the tasks for this tool
 
+function murdoc_help_ips {
+  cat <<EOF
+murdoc ips [--all]
+  List the IP addresses (or hostnames) of nodes in the swarm.
+  By default one is chosen at random; use --all to list every node.
+EOF
+}
 function murdoc_ips {
   # Get the nodes in the swarm
   # Historically, these have been IPv4 addresses, but everything here should work with IPv6 or hostnames as well.
@@ -39,6 +46,12 @@ function murdoc_ips {
   fi
 }
 
+function murdoc_help_curlto {
+  cat <<EOF
+murdoc curlto <container> <path> [curl options…]
+  Curl a path on the given container's service, resolved via MURDOC_IPS_URL.
+EOF
+}
 function murdoc_curlto {
   want_envs MURDOC_IPS_URL ".+"
   # curlto service /path/to/thing
@@ -52,6 +65,12 @@ function murdoc_curlto {
   v_curl -s "$url" "$@"
 }
 
+function murdoc_help_rekey {
+  cat <<EOF
+murdoc rekey
+  Refresh the ssh known_hosts entries for every node in the swarm.
+EOF
+}
 function murdoc_rekey {
   # refresh/replace the ssh known_hosts entries for the swarm
   ucr_opts[all]=1
@@ -78,6 +97,13 @@ function murdoc_rekey {
   zargs -P 10 -l 1 -- ${nodes} -- rekey_add
 }
 
+function murdoc_help_sshto {
+  cat <<EOF
+murdoc sshto [<command…>]
+  Ssh to a node in the swarm and optionally run a command.
+  A node is picked at random; use --pick to choose one interactively.
+EOF
+}
 function murdoc_sshto {
   # ssh to a node in the swarm
   # default is to randomly pick one, but --pick will prompt for a selection
@@ -128,6 +154,13 @@ function murdoc_inspect_on {
   fi
 }
 
+function murdoc_help_inspect {
+  cat <<EOF
+murdoc inspect [<docker inspect args…>]
+  Run 'docker inspect' on a node in the swarm (one node, chosen the same way as 'murdoc ips').
+  Use --sudo to run docker with sudo.
+EOF
+}
 function murdoc_inspect {
   # For starts, always run on one node. (this is how it all worked before)
   local nodes=($(murdoc_ips))
@@ -135,6 +168,13 @@ function murdoc_inspect {
   murdoc_inspect_on ${args[@]} ${nodes[1]}
 }
 
+function murdoc_help_status {
+  cat <<EOF
+murdoc status [--long|-l]
+  Show the status of containers on a node, grouped by service.
+  With --long/-l, show every container instead of the per-group summary.
+EOF
+}
 function murdoc_status {
   # A smarter way of grouping the containers.
   # Right now, just a hardcoded list of regex to group name.  Should it be all in config?
@@ -188,6 +228,12 @@ function murdoc_status {
     fi
 }
 
+function murdoc_help_names {
+  cat <<EOF
+murdoc names
+  List the names of every container on a node.
+EOF
+}
 function murdoc_names {
   murdoc_inspect | jq -r 'map(.Name) | sort | .[]'
 }
@@ -208,16 +254,36 @@ function murdoc_namer {
   fzf -1 --no-multi --query "${1:-m}" < $cache_file
 }
 
+function murdoc_help_env {
+  cat <<EOF
+murdoc env <container>
+  List the environment variables for a container.
+  <container> is fuzzy-matched against the container names.
+EOF
+}
 function murdoc_env {
   local key=$(murdoc_namer ${1:?Missing Container Name})
   murdoc_inspect $key | jq -r '.[]|.Config.Env[]'
 }
 
+function murdoc_help_labels {
+  cat <<EOF
+murdoc labels <container>
+  List the docker labels for a container.
+  <container> is fuzzy-matched against the container names.
+EOF
+}
 function murdoc_labels {
   local key=$(murdoc_namer ${1:?Missing Container Name})
   murdoc_inspect $key | jq -r '.[0].Config.Labels | to_entries | .[] | .key + "=" + .value'
 }
 
+function murdoc_help_commit {
+  cat <<EOF
+murdoc commit [<container>]
+  Show the commit-related labels for a container, or all containers if omitted.
+EOF
+}
 function murdoc_commit {
   local key=''
   if [[ $# > 0 ]]; then
@@ -230,6 +296,13 @@ function murdoc_commit {
 }
 
 # Get envs for service, reshape into envs for mongo, load them and call mongo.
+function murdoc_help_mongo {
+  cat <<EOF
+murdoc mongo <container> [--log] [--prefix=<prefix>]
+  Connect to the mongo instance configured for a container via mongosh/mongo.
+  --log uses the LOG_MONGODB_ prefix; --prefix overrides which env prefix to use.
+EOF
+}
 function murdoc_mongo {
   local prefix
   if [[ -n "${ucr_opts[log]}" ]]; then
@@ -259,6 +332,13 @@ function murdoc_mongo {
 }
 
 # Get envs for service, reshape into envs for cqlsh, load them and call cqlsh.
+function murdoc_help_cqlsh {
+  cat <<EOF
+murdoc cqlsh <container> [--jump] [--hop]
+  Connect to the Cassandra instance configured for a container via cqlsh.
+  --jump tunnels through a swarm node; --hop also tunnels through a docker container on that node.
+EOF
+}
 function murdoc_cqlsh {
   local ens=($(murdoc_env $1 | grep CASS_))
   shift
@@ -285,6 +365,14 @@ function murdoc_cqlsh {
 
 
 # Get envs for service, reshape into envs for psql, load them and call psql.
+function murdoc_help_psql {
+  cat <<EOF
+murdoc psql <container> [--cmd=<cmd>] [--jump] [--hop]
+  Connect to the postgres instance configured for a container via psql.
+  --cmd overrides the client binary to run (default psql).
+  --jump tunnels through a swarm node; --hop also tunnels through a docker container on that node.
+EOF
+}
 function murdoc_psql {
   local cmd=${ucr_opts[cmd]:-"psql"}
   local ens=($(murdoc_env $1 | grep DB_ | sed -e 's/^DB_/PG/'))
@@ -325,6 +413,14 @@ function murdoc_psql {
 
 # Get envs for service, reshape into envs for redis, load them and call redis-cli.
 # Redis-cli only takes password via env, others need options.
+function murdoc_help_redis {
+  cat <<EOF
+murdoc redis <container> [--live] [--prefix=<prefix>] [--jump] [--hop]
+  Connect to the redis instance configured for a container via redis-cli.
+  --live uses the LIVE_DATA_REDIS_ prefix; --prefix overrides which env prefix to use.
+  --jump tunnels through a swarm node; --hop also tunnels through a docker container on that node.
+EOF
+}
 function murdoc_redis {
   local prefix=REDIS_
   if [[ -n "${ucr_opts[live]}" ]]; then

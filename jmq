@@ -900,7 +900,6 @@ function jmq_review {
   You are an extremely skilled programmer with a keen eye for detail working as a positive team member.
   Your job is to review the pull request as a solution to the ticket.
 
-  Your response is a markdown formatted report that will be given to the team for them to address.
   Be consice; sticking to the problems presented in the ticket and if the code in the PR addresses them.
   '
 
@@ -929,7 +928,7 @@ function jmq_review {
     gh pr checks "$pr"
     echo "### Changes"
     gh pr diff "$pr"
-  ) | llm --no-log --system "$prompt" "${=model}"
+  ) | llm --no-log --hide-reasoning --system "$prompt" "${=model}"
 }
 
 function jmq_help_summary {

@@ -53,6 +53,10 @@ jmq q <jql> [--fields=<fields>]
   Use --fields=*all to get everything.
 EOF
 }
+function jmq_spec_q {
+  reply=($'arg\t1\tjql\trequired'
+         $'opt\tfields\tvalue\tdescription=Comma-separated fields')
+}
 function jmq_q {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   # --fields=*all to get everything
@@ -74,6 +78,9 @@ jmq pr [<ticket>]
   Create a Pull Request title for the ticket. If no ticket is given, then the current branch is used.
   The title is the summary of the ticket with the key in parentheses.
 EOF
+}
+function jmq_spec_pr {
+  reply=($'arg\t1\tticket\toptional')
 }
 function jmq_pr {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
@@ -116,6 +123,9 @@ jmq next [<ticket>]
   When there are multiple transitions, a menu is shown to select which to take.
   If no ticket is given, then the current branch is used.
 EOF
+}
+function jmq_spec_next {
+  reply=($'arg\t1\tticket\toptional')
 }
 function jmq_next {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
@@ -193,6 +203,11 @@ jmq as status <status> [--all] [--unblocked]
   If --unblocked is given, then filter out blocked issues.
 EOF
 }
+function jmq_spec_as_status {
+  reply=($'arg\t1\tstatus\trequired'
+         $'opt\tall\tflag\tdescription=Search all projects'
+         $'opt\tunblocked\tflag\tdescription=Filter out blocked issues')
+}
 function jmq_as_status {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local stat=${1:?Missing Issue Status}
@@ -243,6 +258,10 @@ jmq todo [--all] [--unblocked]
   If --unblocked is given, then filter out blocked issues.
 EOF
 }
+function jmq_spec_todo {
+  reply=($'opt\tall\tflag\tdescription=Search all projects'
+         $'opt\tunblocked\tflag\tdescription=Filter out blocked issues')
+}
 function jmq_todo {
   jmq_as_status "On Deck"
 }
@@ -254,6 +273,9 @@ jmq doing [--all]
   If --all is given, then all projects are searched.
 EOF
 }
+function jmq_spec_doing {
+  reply=($'opt\tall\tflag\tdescription=Search all projects')
+}
 function jmq_doing {
   jmq_as_status "In Progress"
 }
@@ -263,6 +285,9 @@ function jmq_help_info {
 jmq info [<ticket>]
   Display the information for a ticket. If no ticket is given, then the current branch is used.
 EOF
+}
+function jmq_spec_info {
+  reply=($'arg\t1\tticket\toptional')
 }
 function jmq_info {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
@@ -354,6 +379,9 @@ jmq open [<ticket>]
   Open the ticket in the browser. If no ticket is given, then the current branch is used.
 EOF
 }
+function jmq_spec_open {
+  reply=($'arg\t1\tticket\toptional')
+}
 function jmq_open {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -370,6 +398,9 @@ function jmq_help_mdl {
 jmq mdl [<ticket>]
   Get the markdown link for a ticket. If no ticket is given, then the current branch is used.
 EOF
+}
+function jmq_spec_mdl {
+  reply=($'arg\t1\tticket\toptional')
 }
 function jmq_mdl {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
@@ -388,6 +419,9 @@ function jmq_help_files {
 jmq files [<ticket>]
   List the files/attachments for a ticket. If no ticket is given, then the current branch is used.
 EOF
+}
+function jmq_spec_files {
+  reply=($'arg\t1\tticket\toptional')
 }
 function jmq_files {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
@@ -454,7 +488,7 @@ jmq labels [<tickets…>]
 EOF
 }
 function jmq_labels {
-  # lables <tickets…>
+  # labels <tickets…>
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
   local keys=($@)
   if [[ $# = 0 ]]; then
@@ -634,6 +668,10 @@ function jmq_help_work {
   If a parent is given, then create the branch there.
 EOF
 }
+function jmq_spec_work {
+  reply=($'arg\t1\tticket\trequired'
+         $'arg\t2\tparent\toptional')
+}
 function jmq_work {
   # work <ticket> [<parent>]
   local key=${1:?Missing Issue Key}
@@ -667,6 +705,10 @@ jmq prc [<key>] [<merge to branch>]
   If key is not given, derive it from the branch name, then move the ticket to "Validate".
 EOF
 }
+function jmq_spec_prc {
+  reply=($'arg\t1\tkey\toptional'
+         $'arg\t2\tbranch\toptional')
+}
 function jmq_prc {
   # prc [<key>] [<merge to branch>]
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
@@ -688,6 +730,10 @@ jmq merge [<key>] [<merge to branch>]
   Merge the branch for key into stable or the given branch.
   If key is not given, derive it from the current branch name.
 EOF
+}
+function jmq_spec_merge {
+  reply=($'arg\t1\tkey\toptional'
+         $'arg\t2\tbranch\toptional')
 }
 function jmq_merge {
   # merge <ticket> [<branch>]
@@ -721,6 +767,9 @@ function jmq_help_comments {
 jmq comments [<ticket>]
   List the comments for a ticket. If no ticket is given, then the current branch is used.
 EOF
+}
+function jmq_spec_comments {
+  reply=($'arg\t1\tticket\toptional')
 }
 function jmq_comments {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
@@ -760,6 +809,9 @@ Display all available information for an issue. This includes:
 - Comments
 EOF
 }
+function jmq_spec_full {
+  reply=($'arg\t1\tticket\toptional')
+}
 function jmq_full {
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   if [[ $key =~ "^[0-9]+$" ]]; then
@@ -773,7 +825,7 @@ function jmq_full {
 
 function jmq_help_review {
   cat <<EOF
-jmq review [<issue> | --pr=<PR#>] [--model=<string>]
+jmq review [<issue> | --pr=<PR#>] [--model=<string>] [--debug] [--dry]
   Generate an AI Review of a ticket and pull request
 
   <issue> - The issue to review.
@@ -781,7 +833,16 @@ jmq review [<issue> | --pr=<PR#>] [--model=<string>]
   If only one given, will figure the other out.
 
   --model=<string> - The model to use for the AI Review. Default is set in `llm models default`
+  --debug - Print the resolved issue and pull request before reviewing.
+  --dry - Resolve the issue and pull request without running the review.
 EOF
+}
+function jmq_spec_review {
+  reply=($'arg\t1\tissue\toptional'
+         $'opt\tpr\tvalue\tdescription=Pull request number'
+         $'opt\tmodel\tvalue\tdescription=Model to use for the AI Review'
+         $'opt\tdebug\tflag\tdescription=Print the resolved issue and pull request'
+         $'opt\tdry\tflag\tdescription=Resolve inputs without running the review')
 }
 function jmq_review {
   want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
@@ -873,12 +934,21 @@ function jmq_review {
 
 function jmq_help_summary {
 cat <<EOF
-jmq summary [<pr> | <commit range>] [--model=<string>]
+jmq summary [<pr> | <commit range>] [--model=<string>] [--debug] [--dry]
   Generate an AI summary of a PR or commit range
 
   <pr> is a pull request number.
   <commit range> is a git commit range.
+  --model=<string> - The model to use for the AI summary. Default is set in `llm models default`
+  --debug - Print the detected input mode and branch checks.
+  --dry - Resolve the input without running the summary.
 EOF
+}
+function jmq_spec_summary {
+  reply=($'arg\t1\tinput\toptional'
+         $'opt\tmodel\tvalue\tdescription=Model to use for the AI summary'
+         $'opt\tdebug\tflag\tdescription=Print the detected input mode and branch checks'
+         $'opt\tdry\tflag\tdescription=Resolve input without running the summary')
 }
 function jmq_summary {
   local possible_mains=(

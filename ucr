@@ -1078,10 +1078,30 @@ function ucr_help_tsdb_list_tags {
   cat <<EOF
 ucr tsdb list tags
   List all tag names.
+  --count                 List each tag name with its number of values.
 EOF
 }
+function ucr_spec_tsdb_list_tags {
+  reply=($'opt\tcount\tflag\tdescription=List each tag name with its number of values')
+}
 function ucr_tsdb_list_tags {
-  _dis_call tsdb listTags '' | jq '.tags | keys'
+  local res=$(_dis_call tsdb listTags '')
+
+  if [[ ${ucr_opts[count]} == true ]]; then
+    while :; do
+      jq -c '.tags' <<< "$res"
+      local next=$(jq -r '.next' <<< "$res")
+      [[ -z "$next" || "$next" == "null" ]] && break
+      res=$(_dis_call tsdb listTags "{\"next\": \"$next\"}")
+    done | jq -sr '[.[] | to_entries[]] | group_by(.key)[] | "\(.[0].key)\t\([.[].value | length] | add)"'
+  else
+    while :; do
+      jq -r '.tags | keys[]' <<< "$res"
+      local next=$(jq -r '.next' <<< "$res")
+      [[ -z "$next" || "$next" == "null" ]] && break
+      res=$(_dis_call tsdb listTags "{\"next\": \"$next\"}")
+    done | sort -u
+  fi
 }
 
 function ucr_help_tsdb_list_metrics {
@@ -1091,8 +1111,14 @@ ucr tsdb list metrics
 EOF
 }
 function ucr_tsdb_list_metrics {
-  _dis_call tsdb listMetrics '' | jq .metrics
-  # someday: Look for .next, and handle repeated calls if need be
+  local res=$(_dis_call tsdb listMetrics '')
+
+  while :; do
+    jq -r '.metrics[]' <<< "$res"
+    local next=$(jq -r '.next' <<< "$res")
+    [[ -z "$next" || "$next" == "null" ]] && break
+    res=$(_dis_call tsdb listMetrics "{\"next\": \"$next\"}")
+  done
 }
 
 function ucr_help_tsdb_exports {

@@ -8,12 +8,12 @@ argv0=${${0:t}:r}
 # Load the ulcer-core.zsh
 SCRIPT_DIR=${0:A:h}
 if [[ -f "${SCRIPT_DIR}/ulcer-core.zsh" ]]; then
-	source "${SCRIPT_DIR}/ulcer-core.zsh"
+  source "${SCRIPT_DIR}/ulcer-core.zsh"
 elif ulcer_core=$(whence -p ulcer-core.zsh) && [[ -n $ulcer_core ]]; then
-	source $ulcer_core
+  source $ulcer_core
 else
-	echo "Error: ulcer-core.zsh not found"
-	exit 1
+  echo "Error: ulcer-core.zsh not found"
+  exit 1
 fi
 
 ##############################################################################
@@ -63,15 +63,15 @@ function fetch_service_schema {
     v_curl -s ${UCR_API_URL}/service/${(L)service}/schema \
       --write-out "%output{>>${ecf}}%{exitcode},%{http_code},%{errormsg}" \
       -o $cache_file
-      local ec http_code errormsg
-      IFS=',' read -r ec http_code errormsg < $ecf
-      if [[ $ec != "0" || $http_code != "200" ]]; then
-        echo "Error fetching schema for service $service: $http_code $errormsg" >&2
-        rm -f $cache_file
-        rm -f $ecf
-        exit 2
-      fi
+    local ec http_code errormsg
+    IFS=',' read -r ec http_code errormsg <$ecf
+    if [[ $ec != "0" || $http_code != "200" ]]; then
+      echo "Error fetching schema for service $service: $http_code $errormsg" >&2
+      rm -f $cache_file
       rm -f $ecf
+      exit 2
+    fi
+    rm -f $ecf
   fi
   # Cache_file is a JSON formatted OpenAPI v2 schema for the service
   # v3 isn't supported by Murano yet.
@@ -105,7 +105,6 @@ ucr <task> [<args…>] [--opts…] [KEY=VALUE…]
     UCR_BIZ_URL   URL to call business logic
 EOF
 }
-
 
 function ucr_help_dump_script {
   cat <<EOF
@@ -151,8 +150,8 @@ function ucr_spec_flow {
 function ucr_flow {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/route/${UCR_SID} \
-    -H 'Content-Type: application/json' \
-    | jq '.flow'
+    -H 'Content-Type: application/json' |
+    jq '.flow'
 }
 
 function ucr_help_flow_set {
@@ -287,9 +286,9 @@ function ucr_solution_list {
   local filter='%7B%7D'
   local opt_req=$(
     options_to_json \
-    business_id::string ".*" \
-    domain::string ".*" \
-    template::string ".*"
+      business_id::string ".*" \
+      domain::string ".*" \
+      template::string ".*"
   )
   [[ -n "$opt_req" ]] && filter=$(jq -n -c -r "$opt_req | @uri")
   v_curl -s ${UCR_API_URL}/solution\?query\=$filter \
@@ -496,11 +495,11 @@ function ucr_service_set {
 
   local query_opts=$(
     options_to_json \
-    noMergeParam::boolean "^(true|1|yes|ok|y|t|false|no|n|f)$" \
-    noParamOverload::string "^([a-zA-Z0-9_-]+(,[a-zA-Z0-9_-]+)*)$|^true$"
+      noMergeParam::boolean "^(true|1|yes|ok|y|t|false|no|n|f)$" \
+      noParamOverload::string "^([a-zA-Z0-9_-]+(,[a-zA-Z0-9_-]+)*)$|^true$"
   )
   [[ -z "${ucr_opts[debug]}" ]] || echo "Query: $query_opts" >&2
-  query_opts=$(jq -r 'if length > 0 then "?" + (to_entries|map("\(.key)=\(.value)")|join("&")) else "" end' <<< $query_opts)
+  query_opts=$(jq -r 'if length > 0 then "?" + (to_entries|map("\(.key)=\(.value)")|join("&")) else "" end' <<<$query_opts)
 
   # Fetch schema for service.
   local cache_file
@@ -518,7 +517,7 @@ function ucr_service_set {
   [[ -z "${ucr_opts[debug]}" ]] || echo "Service parameters: $operation_parameters" >&2
 
   local opt_req='{}'
-  if [[ $(jq 'length' <<< $operation_parameters) > 0 ]]; then
+  if [[ $(jq 'length' <<<$operation_parameters) > 0 ]]; then
     local param_patterns=($(jq -r '.[] |
     	.type |= if (.|type) == "array" then
         "object"
@@ -540,19 +539,19 @@ function ucr_service_set {
       else
         "^.*$"
       end |
-      "\(if (. | has("x-exosite-from")) then .["x-exosite-from"] else .name end)::\(.type)", "\(.rex)"' <<< $operation_parameters))
+      "\(if (. | has("x-exosite-from")) then .["x-exosite-from"] else .name end)::\(.type)", "\(.rex)"' <<<$operation_parameters))
     # echo "= = $param_patterns" >&2
-    [[ -n "$param_patterns" ]] && opt_req=$( options_to_json "${(@)param_patterns}")
+    [[ -n "$param_patterns" ]] && opt_req=$(options_to_json "${(@)param_patterns}")
     [[ -z "$opt_req" ]] && exit 4
   fi
 
   # --listparams will just list the parameters for the operation
   if [[ -n "$ucr_opts[listparams]" ]]; then
-    if [[ $(jq 'length' <<< $operation_parameters) > 0 ]]; then
-      for (( i=1; i<=$#param_patterns; i+=2 )); do
+    if [[ $(jq 'length' <<<$operation_parameters) > 0 ]]; then
+      for ((i = 1; i <= $#param_patterns; i += 2)); do
         local key=${param_patterns[i]%%::*}
         local type=${param_patterns[i]#*::}
-        local rex=${param_patterns[i+1]}
+        local rex=${param_patterns[i + 1]}
         print -r " --$key=<${type} by $rex>"
       done
       return
@@ -570,7 +569,7 @@ function ucr_service_set {
     opt_req=$(jq --argjson opt "$opt_req" '. * $opt' $file)
   fi
 
-  opt_req=$(jq '{"parameters": . }' <<< $opt_req)
+  opt_req=$(jq '{"parameters": . }' <<<$opt_req)
   [[ -z "${ucr_opts[debug]}" ]] || echo "Req: $opt_req" >&2
 
   v_curl -s ${UCR_API_URL}/serviceconfig/${UCR_SID}_${(L)service}${query_opts} \
@@ -700,21 +699,21 @@ function ucr_service_installed {
   want_envs UCR_API_URL "$ucr_api_url_pattern"
   local opt_req=$(
     options_to_json \
-    limit "[1-9][0-9]*" \
-    offset "[1-9][0-9]*"
+      limit "[1-9][0-9]*" \
+      offset "[1-9][0-9]*"
   )
   [[ -z "$opt_req" ]] && exit 4
   local opt_query=$(
     options_to_json \
-    alias::string "^.*$" \
-    status::array "^(available|hidden|removed|draft)(,(available|hidden|removed|draft))*$" \
-    tags::array "^[a-zA-Z0-9_-]+(,[a-zA-Z0-9_-]+)*$" \
-    type::array "^[CXEPS](,[CXEPS])*$"
+      alias::string "^.*$" \
+      status::array "^(available|hidden|removed|draft)(,(available|hidden|removed|draft))*$" \
+      tags::array "^[a-zA-Z0-9_-]+(,[a-zA-Z0-9_-]+)*$" \
+      type::array "^[CXEPS](,[CXEPS])*$"
   )
   [[ -z "$opt_query" ]] && exit 4
 
   # opt_req is an object, opt_query needs to be added to it as the 'query' key with its value as a @uri string
-  local q=$(jq -r --argjson q "$opt_query" '( . + (if ($q | length) > 0 then {"query":($q|@uri)} else {} end)) | to_entries | map("\(.key)=\(.value)") | join("&")' <<< $opt_req)
+  local q=$(jq -r --argjson q "$opt_query" '( . + (if ($q | length) > 0 then {"query":($q|@uri)} else {} end)) | to_entries | map("\(.key)=\(.value)") | join("&")' <<<$opt_req)
 
   v_curl -s ${UCR_API_URL}/service\?${q}
 }
@@ -806,7 +805,7 @@ function ucr_solution_update {
 
   # so, if param, use that, but from is blank; Will that work or break things?
   # Needs testing
-	local from=''
+  local from=''
   local repo_url=$1
   if [[ -n "$ucr_opts[file]" ]]; then
     from='file'
@@ -826,7 +825,7 @@ function ucr_solution_update {
   fi
 
   local req=$(jq -n -c --arg from "$from" --arg url "$repo_url" '{"from": $from, "url": $url}')
-  [[ -z "$from" && -z "$repo_url" ]] && req='{}'  # use current template
+  [[ -z "$from" && -z "$repo_url" ]] && req='{}' # use current template
 
   local forced=''
   if [[ -n "$ucr_opts[force]" ]]; then
@@ -852,12 +851,12 @@ function ucr_logs {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local opt_req=$(
     options_to_json \
-    limit "[1-9][0-9]*" \
-    offset "[1-9][0-9]*"
+      limit "[1-9][0-9]*" \
+      offset "[1-9][0-9]*"
   )
   [[ -z "$opt_req" ]] && exit 4
 
-  local q=$(jq -r 'to_entries|map("\(.key)=\(.value)")|join("&")' <<< $opt_req)
+  local q=$(jq -r 'to_entries|map("\(.key)=\(.value)")|join("&")' <<<$opt_req)
 
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/logs\?${q}
 }
@@ -1003,8 +1002,8 @@ function ucr_sc {
         if ($restricted == true) { $x = "x" } else { $x = " " }
         if ($deprecated == true) { $d = "d" } else { $d = " " }
         $flags = $x . $d . $h' \
-        then cut -o -f flags,operationId \
-        then sort -f operationId
+      then cut -o -f flags,operationId \
+      then sort -f operationId
     return
   fi
 
@@ -1018,7 +1017,7 @@ function ucr_sc {
       | .value
       | select(type == "object" and .operationId == $opId)' $cache_file)
   if [[ -z "$have_op" ]]; then
-    echo "Operation `$operation` not found for service $service" >&2
+    echo "Operation $($operation) not found for service $service" >&2
     exit 3
   fi
 
@@ -1055,7 +1054,7 @@ function ucr_sc {
   [[ -z "${ucr_opts[debug]}" ]] || echo "Operation parameters: $operation_parameters" >&2
 
   local opt_req='{}'
-  if [[ $(jq 'length' <<< $operation_parameters) > 0 ]]; then
+  if [[ $(jq 'length' <<<$operation_parameters) > 0 ]]; then
     local param_patterns=($(jq -r '.[] |
     	.type |= if (.|type) == "array" then
         if any(. == "string") then "string" else  "object" end
@@ -1077,19 +1076,19 @@ function ucr_sc {
       else
         "^.*$"
       end |
-      "\(if (. | has("x-exosite-from")) then .["x-exosite-from"] else .name end)::\(.type)", "\(.rex)"' <<< $operation_parameters))
+      "\(if (. | has("x-exosite-from")) then .["x-exosite-from"] else .name end)::\(.type)", "\(.rex)"' <<<$operation_parameters))
     # echo "= = $param_patterns" >&2
-    [[ -n "$param_patterns" ]] && opt_req=$( options_to_json "${(@)param_patterns}")
+    [[ -n "$param_patterns" ]] && opt_req=$(options_to_json "${(@)param_patterns}")
     [[ -z "$opt_req" ]] && exit 4
   fi
 
   # --listparams will just list the parameters for the operation
   if [[ -n "$ucr_opts[listparams]" ]]; then
-    if [[ $(jq 'length' <<< $operation_parameters) > 0 ]]; then
-      for (( i=1; i<=$#param_patterns; i+=2 )); do
+    if [[ $(jq 'length' <<<$operation_parameters) > 0 ]]; then
+      for ((i = 1; i <= $#param_patterns; i += 2)); do
         local key=${param_patterns[i]%%::*}
         local type=${param_patterns[i]#*::}
-        local rex=${param_patterns[i+1]}
+        local rex=${param_patterns[i + 1]}
         echo " --$key=<${type} by $rex>"
       done
       return
@@ -1119,14 +1118,15 @@ function _dis_call {
 
   local ecf=$(mktemp -t discall.ecf.XXXXXX)
 
-  local res=$(v_curl -s ${UCR_DIS_URL}/call/${UCR_SID}/${(L)service}/${operation} \
-    --write-out "%output{>>${ecf}}%{http_code},%{content_type}" \
-    -H 'Content-Type: application/json' \
-    -d "$data"
+  local res=$(
+    v_curl -s ${UCR_DIS_URL}/call/${UCR_SID}/${(L)service}/${operation} \
+      --write-out "%output{>>${ecf}}%{http_code},%{content_type}" \
+      -H 'Content-Type: application/json' \
+      -d "$data"
   )
 
   local ec content_type
-  IFS=',' read -r ec content_type < $ecf
+  IFS=',' read -r ec content_type <$ecf
   if [[ -n "${ucr_opts[debug]}" ]]; then
     echo "Status: $ec Type: $content_type" >&2
   fi
@@ -1148,7 +1148,7 @@ function _dis_call {
   fi
 
   if [[ $content_type == "application/json" ]]; then
-    jq  <<< "$res"
+    jq <<<"$res"
   else
     print "$res"
   fi
@@ -1167,8 +1167,8 @@ ucr tsdb query [<options>] <metric>… [<tag name>@<tag value>…]
   Query time series data.
   Metric names are just args, tags are <tag name>@<tag value>
 EOF
-if [[ -z "${ucr_opts[short]}" ]]; then
-  cat <<EOF
+  if [[ -z "${ucr_opts[short]}" ]]; then
+    cat <<EOF
   Options:
     --start_time=<time>        Start time for the query.
                                (e.g. 1633036800000ms or 1633036800s or RFC3339 UTC string)
@@ -1214,17 +1214,17 @@ function ucr_tsdb_query {
   # Validate a list of the options we will care about.
   local opt_req=$(
     options_to_json \
-    start_time "[0-9]*(u|ms|s)?" \
-    end_time "[1-9][0-9]*(u|ms|s)?" \
-    relative_start "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
-    relative_end "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
-    sampling_size "[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
-    limit "[1-9][0-9]*" \
-    epoch "(u|ms|s)" \
-    mode "(merge|split)" \
-    fill "(null|previous|none|[1-9][0-9]*|~s:.+)" \
-    order_by "(desc|asc)" \
-    aggregate::array "((avg|min|max|count|sum),?)+"
+      start_time "[0-9]*(u|ms|s)?" \
+      end_time "[1-9][0-9]*(u|ms|s)?" \
+      relative_start "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+      relative_end "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+      sampling_size "[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+      limit "[1-9][0-9]*" \
+      epoch "(u|ms|s)" \
+      mode "(merge|split)" \
+      fill "(null|previous|none|[1-9][0-9]*|~s:.+)" \
+      order_by "(desc|asc)" \
+      aggregate::array "((avg|min|max|count|sum),?)+"
   )
   [[ -z "$opt_req" ]] && exit 4
 
@@ -1232,7 +1232,7 @@ function ucr_tsdb_query {
     {
       "tags": map(select(.value)) | group_by(.key) | map({"key":.[0].key,"value":(map(.value) | if length==1 then first else . end)}) | from_entries,
       "metrics": map(select(.value | not) | .key)
-    })' --args -- "${@}" <<< $opt_req)
+    })' --args -- "${@}" <<<$opt_req)
 
   _dis_call tsdb query "$req"
 }
@@ -1252,15 +1252,15 @@ function ucr_tsdb_list_tags {
 
   if [[ ${ucr_opts[count]} == true ]]; then
     while :; do
-      jq -c '.tags' <<< "$res"
-      local next=$(jq -r '.next' <<< "$res")
+      jq -c '.tags' <<<"$res"
+      local next=$(jq -r '.next' <<<"$res")
       [[ -z "$next" || "$next" == "null" ]] && break
       res=$(_dis_call tsdb listTags "{\"next\": \"$next\"}")
     done | jq -sr '[.[] | to_entries[]] | group_by(.key)[] | "\(.[0].key)\t\([.[].value | length] | add)"'
   else
     while :; do
-      jq -r '.tags | keys[]' <<< "$res"
-      local next=$(jq -r '.next' <<< "$res")
+      jq -r '.tags | keys[]' <<<"$res"
+      local next=$(jq -r '.next' <<<"$res")
       [[ -z "$next" || "$next" == "null" ]] && break
       res=$(_dis_call tsdb listTags "{\"next\": \"$next\"}")
     done | sort -u
@@ -1280,8 +1280,8 @@ function ucr_tsdb_list_metrics {
   local res=$(_dis_call tsdb listMetrics '')
 
   while :; do
-    jq -r '.metrics[]' <<< "$res"
-    local next=$(jq -r '.next' <<< "$res")
+    jq -r '.metrics[]' <<<"$res"
+    local next=$(jq -r '.next' <<<"$res")
     [[ -z "$next" || "$next" == "null" ]] && break
     res=$(_dis_call tsdb listMetrics "{\"next\": \"$next\"}")
   done
@@ -1301,7 +1301,7 @@ function ucr_tsdb_exports {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local opt_req=$(
     options_to_json \
-    limit "[1-9][0-9]*"
+      limit "[1-9][0-9]*"
   )
   [[ -z "$opt_req" ]] && exit 4
 
@@ -1330,8 +1330,8 @@ function ucr_help_tsdb_export {
 ucr tsdb export [<options>] <metric>… [<tag name>@<tag value>…] [<formatting>…]
   Export time series data to a CSV file.
 EOF
-if [[ -z "${ucr_opts[short]}" ]]; then
-  cat <<EOF
+  if [[ -z "${ucr_opts[short]}" ]]; then
+    cat <<EOF
   Metric names are just args, tags are <tag name>@<tag value>, formats are <metric>#<action>#<value>
   Options:
     --output=<filename>      Output file name. Defaults to <timestamp>_auto.csv
@@ -1431,14 +1431,14 @@ function ucr_tsdb_export {
   #  aggregate "((avg|min|max|count|sum),?)+"
   local opt_req=$(
     options_to_json \
-    start_time "[1-9][0-9]*(u|ms|s)?" \
-    end_time "[1-9][0-9]*(u|ms|s)?" \
-    relative_start "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
-    relative_end "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
-    limit "[1-9][0-9]*" \
-    epoch "(u|ms|s)" \
-    fill "(null|previous|none|[1-9][0-9]*|~s:.+)" \
-    order_by "(desc|asc)"
+      start_time "[1-9][0-9]*(u|ms|s)?" \
+      end_time "[1-9][0-9]*(u|ms|s)?" \
+      relative_start "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+      relative_end "-[1-9][0-9]*(u|ms|s|m|h|d|w)?" \
+      limit "[1-9][0-9]*" \
+      epoch "(u|ms|s)" \
+      fill "(null|previous|none|[1-9][0-9]*|~s:.+)" \
+      order_by "(desc|asc)"
   )
   [[ -z "$opt_req" ]] && exit 4
 
@@ -1446,9 +1446,9 @@ function ucr_tsdb_export {
   # These are all just once things, so it is cleaner to have them as options than as the '#' syntax
   local formated=$(
     options_to_json \
-    timestamp ".*"\
-    offset "-?[1-9][0-9]*" \
-    include "[a-zA-Z0-9_,]+"
+      timestamp ".*" \
+      offset "-?[1-9][0-9]*" \
+      include "[a-zA-Z0-9_,]+"
   )
   [[ -z "$formated" ]] && exit 4
 
@@ -1460,7 +1460,6 @@ function ucr_tsdb_export {
   #   echo "output file name cannot have spaces ($filename)" >&2
   #   exit 5
   # fi
-
 
   local req=$(jq --arg fn "$filename" --argjson ft "$formated" '{
     "query": (. + ($ARGS.positional | {
@@ -1487,7 +1486,7 @@ function ucr_tsdb_export {
         {tags: [{discard: true}]}
       end
     )
-  }' --args -- "${@}" <<< $opt_req)
+  }' --args -- "${@}" <<<$opt_req)
 
   _dis_call tsdb export "$req"
 }
@@ -1514,7 +1513,7 @@ function ucr_tsdb_write {
   local req=$(jq -c 'def nwise($n): while(.!=[]; .[$n:])[:$n]; . + ($ARGS.positional | map(split("@") | {"key": .[0], "value": .[1]} ) |
     { "tags": (map(select(.value)) | from_entries),
       "metrics": ([map(select(.value|not)|.key) | nwise(2) | {"key": .[0], "value": .[1]}] | from_entries)
-    })' --args -- "${@}" <<< $opt_req)
+    })' --args -- "${@}" <<<$opt_req)
 
   _dis_call tsdb write "$req"
 }
@@ -1635,7 +1634,7 @@ function ucr_content_info {
   local id=${1:?Need file id}
   local req="{\"id\": \"$id\"}"
 
-	_dis_call content info "$req"
+  _dis_call content info "$req"
 }
 
 function ucr_help_content_list {
@@ -1655,8 +1654,9 @@ function ucr_spec_content_list {
 function ucr_content_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   # list [--op=AND|OR] [--stop=#] [<prefix filter>] [<tag name filter>@<tag value filter> ...]
-  local opt_req=$(options_to_json \
-    op "^(AND|OR)$"
+  local opt_req=$(
+    options_to_json \
+      op "^(AND|OR)$"
   )
   [[ -z "$opt_req" ]] && exit 4
 
@@ -1665,7 +1665,7 @@ function ucr_content_list {
       "tags": (map(select(.value)) | from_entries | tojson),
       "prefix": (map(select(.value|not)|.key) | first),
       "full": true
-    } | del(.[] | select(. == null)))' --args -- "${@}" <<< $opt_req)
+    } | del(.[] | select(. == null)))' --args -- "${@}" <<<$opt_req)
 
   local prior_count=1
   local total_count=0
@@ -1673,22 +1673,22 @@ function ucr_content_list {
   local cursor=''
 
   # first call always happens and has no cursor.
-  local ret=$( _dis_call content list "$p_req")
-  prior_count=$(jq -r length <<< $ret)
-  total_count=$(( total_count + prior_count ))
-  cursor=$(jq -r 'last | .id' <<< $ret)
+  local ret=$(_dis_call content list "$p_req")
+  prior_count=$(jq -r length <<<$ret)
+  total_count=$((total_count + prior_count))
+  cursor=$(jq -r 'last | .id' <<<$ret)
   # Now 'stream' results
-  jq -c -M '.[]' <<< $ret
+  jq -c -M '.[]' <<<$ret
 
   # Loop advancing cursor until an empty reply
   while [[ prior_count -gt 0 && total_count -lt stop_after ]]; do
-    local req=$(jq -c --arg cursor "$cursor" '. + {"cursor": $cursor}' <<< $p_req)
+    local req=$(jq -c --arg cursor "$cursor" '. + {"cursor": $cursor}' <<<$p_req)
     local ret=$(_dis_call content list "$req")
-    prior_count=$(jq -r length <<< $ret)
-    total_count=$(( total_count + prior_count ))
-    cursor=$(jq -r 'last | .id' <<< $ret)
+    prior_count=$(jq -r length <<<$ret)
+    total_count=$((total_count + prior_count))
+    cursor=$(jq -r 'last | .id' <<<$ret)
     # Now 'stream' results
-    jq -c -M '.[]' <<< $ret
+    jq -c -M '.[]' <<<$ret
   done
 }
 
@@ -1703,7 +1703,9 @@ function ucr_spec_content_delete {
 }
 function ucr_content_delete {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
-  local req=$(jq -n -c '{ "body" : $ARGS.positional }' --args -- "$@")
+  local req=$(jq -n -c '{
+  "body" : $ARGS.positional
+}' --args -- "$@")
 
   _dis_call content deleteMulti "$req"
 }
@@ -1724,11 +1726,12 @@ function ucr_content_download {
   # doesn't actually download, just returns a URL to download from.
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local cid=${1:?Need content id to download}
-  local opt_req=$(options_to_json \
-    expires_in "^\d+$" \
+  local opt_req=$(
+    options_to_json \
+      expires_in "^\d+$"
   )
   [[ -z "$opt_req" ]] && exit 4
-  local req=$(jq -c --arg cid "$cid" '. + {"id": $cid|@uri }' <<< $opt_req)
+  local req=$(jq -c --arg cid "$cid" '. + {"id": $cid|@uri }' <<<$opt_req)
 
   _dis_call content download "$req"
 }
@@ -1750,9 +1753,10 @@ function ucr_content_upload {
   # Doesn't actually upload, just returns a cURL to upload to.
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local cid=${1:?Need content id to upload}
-  local opt_req=$(options_to_json \
-    expires_in "^\d+$" \
-    type "^.+$" \
+  local opt_req=$(
+    options_to_json \
+      expires_in "^\d+$" \
+      type "^.+$"
   )
   [[ -z "$opt_req" ]] && exit 4
 
@@ -1761,7 +1765,7 @@ function ucr_content_upload {
   local psu=$(_dis_call content upload "$req")
 
   # Convert to new curl params
-  local params=($(jq '(.inputs|to_entries|[.[]|"-F", "\"\(.key)=\(.value)\""]) + (["-F", "\"\(.field)=@\(.id)\"", .url]) |.[]' -r <<< $psu))
+  local params=($(jq '(.inputs|to_entries|[.[]|"-F", "\"\(.key)=\(.value)\""]) + (["-F", "\"\(.field)=@\(.id)\"", .url]) |.[]' -r <<<$psu))
   echo curl -X POST "${params[@]}"
 }
 
@@ -1846,7 +1850,7 @@ function ucr_spec_device_timestamp {
 function ucr_device_timestamp {
   # This reads via the external HTTP API.
   local details=$(ucr_service_details device2)
-  local d_host=$(jq -r .parameters.fqdn <<< $details)
+  local d_host=$(jq -r .parameters.fqdn <<<$details)
 
   v_curl -s https://${d_host}/timestamp
 }
@@ -1871,8 +1875,8 @@ function ucr_device_write {
   local res=${2:?Need a resource to write}
   local val=${3:?Need a value}
   local details=$(ucr_service_details device2)
-  local d_host=$(jq -r .parameters.fqdn <<< $details)
-  local vm=$(jq -r .solution_id <<< $details)
+  local d_host=$(jq -r .parameters.fqdn <<<$details)
+  local vm=$(jq -r .solution_id <<<$details)
   local cik=$UCR_CIK
   # if UCR_CIK_<did> is set, use that instead
   local cik_var="UCR_CIK_${did}"
@@ -1881,7 +1885,7 @@ function ucr_device_write {
   fi
 
   # server actually only supports a subset of form-urlencoded, so manually pack it
-  val=$(jq -r '@uri' <<< $val)
+  val=$(jq -r '@uri' <<<$val)
   v_curl -s https://${d_host}/onep:v1/stack/alias \
     -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
     -H "Authorization: token ${cik}" \
@@ -1910,8 +1914,8 @@ function ucr_device_record {
   local ts=${3:?Need a timestamp}
   local val=${4:?Need a value}
   local details=$(ucr_service_details device2)
-  local d_host=$(jq -r .parameters.fqdn <<< $details)
-  local vm=$(jq -r .solution_id <<< $details)
+  local d_host=$(jq -r .parameters.fqdn <<<$details)
+  local vm=$(jq -r .solution_id <<<$details)
   local cik=$UCR_CIK
   # if UCR_CIK_<did> is set, use that instead
   local cik_var="UCR_CIK_${did}"
@@ -1920,7 +1924,7 @@ function ucr_device_record {
   fi
 
   # server actually only supports a subset of form-urlencoded, so manually pack it
-  val=$(jq -r '@uri' <<< $val)
+  val=$(jq -r '@uri' <<<$val)
   v_curl -s https://${d_host}/onep:v1/stack/record \
     -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' \
     -H "Authorization: token ${cik}" \
@@ -2012,7 +2016,7 @@ function ucr_device_activate {
   # This activates via the external HTTP API.
   local did=${1:?Need device id}
   local details=$(ucr_service_details device2)
-  local d_host=$(jq -r .parameters.fqdn <<< $details)
+  local d_host=$(jq -r .parameters.fqdn <<<$details)
 
   # server actually only supports a subset of form-urlencoded, so manually pack it
   # did=$(jq -r '@uri' <<< $did)
@@ -2046,7 +2050,7 @@ function ucr_device_content_upload {
 
   [[ ! -f "$fid" ]] && echo "File to upload not found: $fid" >&2 && return 2
   local details=$(ucr_service_details device2)
-  local d_host=$(jq -r .parameters.fqdn <<< $details)
+  local d_host=$(jq -r .parameters.fqdn <<<$details)
   local cik=$UCR_CIK
   # if UCR_CIK_<did> is set, use that instead
   local cik_var="UCR_CIK_${did}"

@@ -115,6 +115,9 @@ ucr dump script
   Useful to see what extra junk was actually added.
 EOF
 }
+function ucr_spec_dump_script {
+  reply=()
+}
 function ucr_dump_script {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/route/${UCR_SID}/script \
@@ -127,6 +130,9 @@ ucr dump source map
   Dump out a map of the Lua fragments to line numbers of the unified solution script
 EOF
 }
+function ucr_spec_dump_source_map {
+  reply=()
+}
 function ucr_dump_source_map {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/route/${UCR_SID}/sourcemap \
@@ -138,6 +144,9 @@ function ucr_help_flow {
 ucr flow
   Get the data-flow config for a solution
 EOF
+}
+function ucr_spec_flow {
+  reply=()
 }
 function ucr_flow {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -153,6 +162,9 @@ ucr flow set < flow_file
   The flow_file should be a JSON object representing the flow.
   To update a flow use: ucr flow | jq <stuff> | ucr flow set
 EOF
+}
+function ucr_spec_flow_set {
+  reply=()
 }
 function ucr_flow_set {
   # ucr flow set < flow_file
@@ -172,6 +184,9 @@ ucr env get
   Get all solution environment variables for the solution.
 EOF
 }
+function ucr_spec_env_get {
+  reply=()
+}
 function ucr_env_get {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/env \
@@ -185,6 +200,11 @@ ucr env set <key> <value> [<key <value> …] [--overwrite]
   By default, adds or updates keys.
   Use --overwrite to replace all prior keys with the new set.
 EOF
+}
+function ucr_spec_env_set {
+  reply=($'arg\t1\tkey\trequired'
+    $'arg\t2\tvalue\trequired\tpassthrough=true'
+    $'opt\toverwrite\tflag')
 }
 function ucr_env_set {
   # <key> <value> [<key <value> …]
@@ -210,6 +230,9 @@ ucr env del <key> [<key> …]
   Delete one or more solution environment variables from the solution.
 EOF
 }
+function ucr_spec_env_del {
+  reply=($'arg\t1\tkey\trequired\tpassthrough=true')
+}
 function ucr_env_del {
   # <key> [<key> …]
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -224,15 +247,25 @@ function ucr_env_del {
 }
 
 function ucr_help_solution_info {
+  # TODO: needs updates
   cat <<EOF
 ucr solution info <solution id>
   Get information about a solution
 EOF
 }
+function ucr_spec_solution_info {
+  reply=()
+}
 function ucr_solution_info {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}
 }
+
+# Someday todo: PUT to /solution/$sid to update solution info
+# While this can do a lot, many parts are not correct unless using the preferred (i'd say correct) API.
+# FE: templates should use the …/update, ENVs should use …/env, services should use …/serviceconfig, etc…
+# What's left? well, engine weird-isms (settings for engine that are in the solution)
+# 'resuse_vm' and 'quota.processing_time_daily'  that might be it…
 
 function ucr_help_solution_list {
   cat <<EOF
@@ -243,6 +276,11 @@ ucr solution list [<options>]
     --domain=<domain>    Filter by domain name (exact match)
     --template=<type>    Filter by template type (application or m2connector)
 EOF
+}
+function ucr_spec_solution_list {
+  reply=($'opt\tbusiness_id\tvalue\tcompletion=freeform'
+    $'opt\tdomain\tvalue\tcompletion=freeform'
+    $'opt\ttemplate\tvalue\tcompletion=(application m2connector)')
 }
 function ucr_solution_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern"
@@ -274,6 +312,14 @@ ucr solution create SID=<solution id> [BID=<business id>] [<options>] domain
     --github=<url>      Use a github repo as the template source
     --zip=<url>         Use a zip file url as the template source
 EOF
+}
+function ucr_spec_solution_create {
+  reply=($'arg\t1\tdomain\trequired\tcompletion=freeform'
+    $'opt\tm2\tflag'
+    $'opt\texchange\tvalue\tcompletion=freeform'
+    $'opt\tfile\tvalue\tcompletion=freeform'
+    $'opt\tgithub\tvalue\tcompletion=freeform'
+    $'opt\tzip\tvalue\tcompletion=freeform')
 }
 function ucr_solution_create {
   want_envs UCR_API_URL "$ucr_api_url_pattern" \
@@ -321,6 +367,9 @@ ucr solution delete <solution id>
   Deletes a solution
 EOF
 }
+function ucr_spec_solution_delete {
+  reply=($'arg\t1\tsolution_id\trequired\tcompletion=freeform')
+}
 function ucr_solution_delete {
   # ucr solution delete <solution id>
   want_envs UCR_API_URL "$ucr_api_url_pattern"
@@ -338,6 +387,9 @@ ucr services
   List all services in a solution
 EOF
 }
+function ucr_spec_services {
+  reply=()
+}
 function ucr_services {
   # ??? add more optional query parameters?
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -352,6 +404,9 @@ ucr service using <service>
   Good for finding which solutions have added a service.
 EOF
 }
+function ucr_spec_service_using {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform')
+}
 function ucr_service_using {
   local service=${1:?Need service name}
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -365,6 +420,9 @@ ucr service usage <service>
   Get usage information about a service
 EOF
 }
+function ucr_spec_service_usage {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform')
+}
 function ucr_service_usage {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
@@ -376,6 +434,9 @@ function ucr_help_service_details {
 ucr service details <service>
   Get details about a service
 EOF
+}
+function ucr_spec_service_details {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform')
 }
 function ucr_service_details {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -389,11 +450,15 @@ ucr service get <service>
   Get the configuration for a service in a solution.
 EOF
 }
+function ucr_spec_service_get {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform')
+}
 function ucr_service_get {
   ucr_service_details "$1" | jq '.parameters'
 }
 
 function ucr_help_service_set {
+  # TODO: needs updates
   cat <<EOF
 ucr service set <service> [--listparams] [--no-cache] [--in=FILE] [options]
   Set the configuration for a service in a solution.
@@ -415,6 +480,15 @@ ucr service set <service> [--listparams] [--no-cache] [--in=FILE] [options]
   If both options and --in are given, the options override any values in the file.
 
 EOF
+}
+function ucr_spec_service_set {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform'
+    $'opt\tlistparams\tflag'
+    $'opt\tno-cache\tflag'
+    $'opt\tin\tvalue\tcompletion=freeform'
+    $'opt\tnoMergeParam\tvalue\tcompletion=(true 1 yes ok y t false no n f)'
+    $'opt\tnoParamOverload\tvalue\tcompletion=freeform'
+    $'opt\tdebug\tflag')
 }
 function ucr_service_set {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -511,6 +585,11 @@ ucr service quota set <service> <quota-key> <quota-value> […]
   Set quota keys for a service.
 EOF
 }
+function ucr_spec_service_quota_set {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform'
+    $'arg\t2\tquota_key\trequired\tpassthrough=true'
+    $'arg\t3\tquota_value\trequired\tpassthrough=true')
+}
 function ucr_service_quota_set {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID '^[a-zA-Z0-9]+$'
   local service=${1:?Need service name}
@@ -532,6 +611,9 @@ ucr service quota get <service>
   Get quota keys for a service.
 EOF
 }
+function ucr_spec_service_quota_get {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform')
+}
 function ucr_service_quota_get {
   ucr_service_details "$1" | jq .quota
 }
@@ -542,6 +624,9 @@ ucr service add <service>
   Add a service to the solution.
   The <service> can be the name of an IoT Connector to link, or a service name.
 EOF
+}
+function ucr_spec_service_add {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform')
 }
 function ucr_service_add {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -558,6 +643,9 @@ ucr service delete <service>
   Delete a service from a solution
   Note, that the <service> can be the name of an IoT Connector to unlink
 EOF
+}
+function ucr_spec_service_delete {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform')
 }
 function ucr_service_delete {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -576,6 +664,9 @@ ucr service schema <service>
   Get the OpenAPI schema for a service
 EOF
 }
+function ucr_spec_service_schema {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform')
+}
 function ucr_service_schema {
   want_envs UCR_API_URL "$ucr_api_url_pattern"
   local service=${1:?Need service name}
@@ -583,6 +674,7 @@ function ucr_service_schema {
 }
 
 function ucr_help_service_installed {
+  # TODO: needs updates
   cat <<EOF
 ucr service installed [<options>]
   List all services installed.
@@ -595,6 +687,14 @@ ucr service installed [<options>]
     --tags=<list>      Comma separated list of tags to filter by
     --type=<list>      Comma separated list of types to filter by (C, X, E, P, S)
 EOF
+}
+function ucr_spec_service_installed {
+  reply=($'opt\tlimit\tvalue\tregex=^[1-9][0-9]*$'
+    $'opt\toffset\tvalue\tregex=^[1-9][0-9]*$'
+    $'opt\talias\tvalue\tcompletion=freeform'
+    $'opt\tstatus\tvalue\tcompletion=freeform'
+    $'opt\ttags\tvalue\tcompletion=freeform'
+    $'opt\ttype\tvalue\tcompletion=freeform')
 }
 function ucr_service_installed {
   want_envs UCR_API_URL "$ucr_api_url_pattern"
@@ -626,6 +726,10 @@ ucr service install <service> <url>
   Once installed, the service can be added to solutions.
 EOF
 }
+function ucr_spec_service_install {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform'
+    $'arg\t2\turl\trequired\tcompletion=freeform')
+}
 function ucr_service_install {
   want_envs UCR_API_URL "$ucr_api_url_pattern"
   local service=${1:?Need service name}
@@ -642,6 +746,10 @@ function ucr_help_service_uninstall {
 ucr service uninstall <service> [--force]
   Uninstall a service
 EOF
+}
+function ucr_spec_service_uninstall {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform'
+    $'opt\tforce\tflag')
 }
 function ucr_service_uninstall {
   want_envs UCR_API_URL "$ucr_api_url_pattern"
@@ -660,6 +768,9 @@ ucr service info <service>
   Get computed info for a service
 EOF
 }
+function ucr_spec_service_info {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform')
+}
 function ucr_service_info {
   local service=${1:?Need service name}
 
@@ -669,6 +780,7 @@ function ucr_service_info {
 ####################
 
 function ucr_help_solution_update {
+  # TODO: needs updates
   cat <<EOF
 ucr solution update [--file=<template name>] [--github=[<url>]] [--zip=<url>] [--force]
   Request a solution to update to the template served at the given location.
@@ -682,6 +794,12 @@ ucr solution update [--file=<template name>] [--github=[<url>]] [--zip=<url>] [-
     --zip=<url>         Use a zip file url as the template source
     --force             Force update even if no changes detected
 EOF
+}
+function ucr_spec_solution_update {
+  reply=($'opt\tfile\tvalue\tcompletion=freeform'
+    $'opt\tgithub\tvalue\tcompletion=freeform'
+    $'opt\tzip\tvalue\tcompletion=freeform'
+    $'opt\tforce\tflag')
 }
 function ucr_solution_update {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -720,10 +838,15 @@ function ucr_solution_update {
 }
 
 function ucr_help_logs {
+  # TODO: needs updates
   cat <<EOF
 ucr logs [--limit=] [--offset=]
   Get solution logs
 EOF
+}
+function ucr_spec_logs {
+  reply=($'opt\tlimit\tvalue\tregex=^[1-9][0-9]*$'
+    $'opt\toffset\tvalue\tregex=^[1-9][0-9]*$')
 }
 function ucr_logs {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -753,6 +876,9 @@ ucr business token
   All other business tasks require this token to operate and automatically call this.
 EOF
 }
+function ucr_spec_business_token {
+  reply=()
+}
 function ucr_business_token {
   want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
   get_token
@@ -764,6 +890,9 @@ function ucr_help_business_solutions {
 ucr business solutions
   List all solutions for the business
 EOF
+}
+function ucr_spec_business_solutions {
+  reply=()
 }
 function ucr_business_solutions {
   want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
@@ -780,6 +909,9 @@ ucr business solution delete <solution id>
   Deletes a solution from a business
 EOF
 }
+function ucr_spec_business_solution_delete {
+  reply=($'arg\t1\tsolution_id\trequired\tcompletion=freeform')
+}
 function ucr_business_solution_delete {
   want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
   local sid=${1:?Need solution id}
@@ -791,10 +923,14 @@ function ucr_business_solution_delete {
 }
 
 function ucr_help_business_solution_get {
+  # TODO: needs updates
   cat <<EOF
 ucr business solution get <solution id>
   Gets solution info from a business
 EOF
+}
+function ucr_spec_business_solution_get {
+  reply=($'arg\t1\tsolution_id\trequired\tcompletion=freeform')
 }
 function ucr_business_get {
   want_envs UCR_BIZ_URL "$ucr_biz_url_pattern" UCR_BID "^[a-zA-Z0-9]+$"
@@ -808,6 +944,7 @@ function ucr_business_get {
 #########################################################################
 
 function ucr_help_sc {
+  # TODO: needs updates
   cat <<EOF
 ucr sc <service> [--listops] [--no-cache] [--in=FILE] <operation> [--listparams] [options]
   Call a service operation.
@@ -823,6 +960,17 @@ ucr sc <service> [--listops] [--no-cache] [--in=FILE] <operation> [--listparams]
 
   Note: This is a generic interface, and does not provide any special handling for specific services or operations.
 EOF
+}
+function ucr_spec_sc {
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform'
+    $'arg\t2\toperation\toptional\tcompletion=freeform'
+    $'opt\tlistops\tflag'
+    $'opt\tlistparams\tflag'
+    $'opt\tno-cache\tflag'
+    $'opt\tin\tvalue\tcompletion=freeform'
+    $'opt\tdebug\tflag'
+    $'opt\traw\tflag'
+    $'opt\tcontenttype\tvalue\tcompletion=freeform')
 }
 function ucr_sc {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_DIS_URL "$ucr_dis_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -1013,6 +1161,7 @@ function _dis_call {
 # TSDB service
 
 function ucr_help_tsdb_query {
+  # TODO: needs updates
   cat <<EOF
 ucr tsdb query [<options>] <metric>… [<tag name>@<tag value>…]
   Query time series data.
@@ -1043,6 +1192,20 @@ if [[ -z "${ucr_opts[short]}" ]]; then
                                Note: aggregate requires sampling_size to be set.
 EOF
   fi
+}
+function ucr_spec_tsdb_query {
+  reply=($'opt\tstart_time\tvalue\tregex=^[0-9]*(u|ms|s)?$'
+    $'opt\tend_time\tvalue\tregex=^[1-9][0-9]*(u|ms|s)?$'
+    $'opt\trelative_start\tvalue\tregex=^-[1-9][0-9]*(u|ms|s|m|h|d|w)?$'
+    $'opt\trelative_end\tvalue\tregex=^-[1-9][0-9]*(u|ms|s|m|h|d|w)?$'
+    $'opt\tsampling_size\tvalue\tregex=^[1-9][0-9]*(u|ms|s|m|h|d|w)?$'
+    $'opt\tlimit\tvalue\tregex=^[1-9][0-9]*$'
+    $'opt\tepoch\tvalue\tcompletion=(u ms s)'
+    $'opt\tmode\tvalue\tcompletion=(merge split)'
+    $'opt\tfill\tvalue\tcompletion=freeform'
+    $'opt\torder_by\tvalue\tcompletion=(desc asc)'
+    $'opt\taggregate\tvalue\tcompletion=freeform'
+    $'arg\t1\tmetric\trequired\tpassthrough=true')
 }
 function ucr_tsdb_query {
   # metric names are just args, tags are <tag name>@<tag value>
@@ -1110,6 +1273,9 @@ ucr tsdb list metrics
   List all metric names.
 EOF
 }
+function ucr_spec_tsdb_list_metrics {
+  reply=()
+}
 function ucr_tsdb_list_metrics {
   local res=$(_dis_call tsdb listMetrics '')
 
@@ -1122,10 +1288,14 @@ function ucr_tsdb_list_metrics {
 }
 
 function ucr_help_tsdb_exports {
+  # TODO: needs updates
   cat <<EOF
 ucr tsdb exports
   List all export jobs.
 EOF
+}
+function ucr_spec_tsdb_exports {
+  reply=($'opt\tlimit\tvalue\tregex=^[1-9][0-9]*$')
 }
 function ucr_tsdb_exports {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -1144,6 +1314,9 @@ ucr tsdb export_info <job id>
   Get information about a specific export job.
 EOF
 }
+function ucr_spec_tsdb_export_info {
+  reply=($'arg\t1\tjob_id\trequired\tcompletion=freeform')
+}
 function ucr_tsdb_export_info {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local job_id=${1:?Need job id argument}
@@ -1152,6 +1325,7 @@ function ucr_tsdb_export_info {
 }
 
 function ucr_help_tsdb_export {
+  # TODO: needs updates
   cat <<EOF
 ucr tsdb export [<options>] <metric>… [<tag name>@<tag value>…] [<formatting>…]
   Export time series data to a CSV file.
@@ -1205,6 +1379,21 @@ if [[ -z "${ucr_opts[short]}" ]]; then
       Can use the '--timestamp' and '--offset' to shortcut for the 'timestamp' column.
 EOF
   fi
+}
+function ucr_spec_tsdb_export {
+  reply=($'opt\toutput\tvalue\tcompletion=freeform'
+    $'opt\tstart_time\tvalue\tcompletion=freeform'
+    $'opt\tend_time\tvalue\tcompletion=freeform'
+    $'opt\trelative_start\tvalue\tcompletion=freeform'
+    $'opt\trelative_end\tvalue\tcompletion=freeform'
+    $'opt\tlimit\tvalue\tregex=^[1-9][0-9]*$'
+    $'opt\tepoch\tvalue\tcompletion=(u ms s)'
+    $'opt\tfill\tvalue\tcompletion=freeform'
+    $'opt\torder_by\tvalue\tcompletion=(desc asc)'
+    $'opt\ttimestamp\tvalue\tcompletion=freeform'
+    $'opt\toffset\tvalue\tregex=^-?[1-9][0-9]*$'
+    $'opt\tinclude\tvalue\tcompletion=freeform'
+    $'arg\t1\tmetric\trequired\tpassthrough=true')
 }
 function ucr_tsdb_export {
   # metric names are just args, tags are <tag name>@<tag value>, formats are <metric>#<action>#<value>
@@ -1304,11 +1493,16 @@ function ucr_tsdb_export {
 }
 
 function ucr_help_tsdb_write {
+  # TODO: needs updates
   cat <<EOF
 ucr tsdb write [--ts=<timestamp>] <metric> <value> [<metric> <value> …] [<tag>@<value> …]
   Write time series data points.
   Metric names and values are pairs of args, tags are <tag name>@<tag value>
 EOF
+}
+function ucr_spec_tsdb_write {
+  reply=($'opt\tts\tvalue\tregex=^[1-9][0-9]*(u|ms|s)?$'
+    $'arg\t1\tmetric\trequired\tpassthrough=true')
 }
 function ucr_tsdb_write {
   # write [--ts=<timestamp>] <metric> <value> [<metric> <value> …] [<tag>@<value> …]
@@ -1334,6 +1528,9 @@ ucr keystore list [<match>]
   List keys in the keystore. Optionally filter by match pattern (default '*')
 EOF
 }
+function ucr_spec_keystore_list {
+  reply=($'arg\t1\tmatch\toptional\tcompletion=freeform')
+}
 function ucr_keystore_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local match=${1:-*}
@@ -1347,6 +1544,9 @@ function ucr_help_keystore_get {
 ucr keystore get <key> [<key> …]
   Get one or more keys from the keystore.
 EOF
+}
+function ucr_spec_keystore_get {
+  reply=($'arg\t1\tkey\trequired\tpassthrough=true')
 }
 function ucr_keystore_get {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -1362,6 +1562,10 @@ ucr keystore set <key> <value>
   Set a key in the keystore. Use '-' as value to read from STDIN.
   (atm there is no way to set a value of '-')
 EOF
+}
+function ucr_spec_keystore_set {
+  reply=($'arg\t1\tkey\trequired'
+    $'arg\t2\tvalue\trequired')
 }
 function ucr_keystore_set {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -1382,6 +1586,9 @@ ucr keystore delete <key> [<key> …]
   Delete one or more keys from the keystore.
 EOF
 }
+function ucr_spec_keystore_delete {
+  reply=($'arg\t1\tkey\trequired\tpassthrough=true')
+}
 function ucr_keystore_delete {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   [[ $# == 0 ]] && echo "Missing keys to delete" >&2 && exit 2
@@ -1395,6 +1602,11 @@ function ucr_help_keystore_cmd {
 ucr keystore cmd <key> <command> [<arg> …]
   Execute a command on a key in the keystore.
 EOF
+}
+function ucr_spec_keystore_cmd {
+  reply=($'arg\t1\tkey\trequired'
+    $'arg\t2\tcommand\trequired'
+    $'arg\t3\textra\toptional\tpassthrough=true')
 }
 function ucr_keystore_cmd {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -1416,6 +1628,9 @@ ucr content info <content id>
   Returns information about the specified content.
 EOF
 }
+function ucr_spec_content_info {
+  reply=($'arg\t1\tcontent_id\trequired\tcompletion=freeform')
+}
 function ucr_content_info {
   local id=${1:?Need file id}
   local req="{\"id\": \"$id\"}"
@@ -1424,12 +1639,18 @@ function ucr_content_info {
 }
 
 function ucr_help_content_list {
+  # TODO: needs updates
   cat <<EOF
 ucr content list [--op=AND|OR] [--stop=#] [<prefix filter>] [<tag name filter>@<tag value filter> ...]
   Lists content matching the specified filters.
   --op determines if multiple tag filters are ANDed or ORed. Default is AND.
   --stop limits the number of results returned. Default is no limit.
 EOF
+}
+function ucr_spec_content_list {
+  reply=($'opt\top\tvalue\tcompletion=(AND OR)'
+    $'opt\tstop\tvalue\tregex=^[0-9]+$'
+    $'arg\t1\tfilter\toptional\tpassthrough=true')
 }
 function ucr_content_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -1477,6 +1698,9 @@ ucr content delete <content id> [<content id> ...]
   Deletes the specified content.
 EOF
 }
+function ucr_spec_content_delete {
+  reply=($'arg\t1\tcontent_id\trequired\tpassthrough=true')
+}
 function ucr_content_delete {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local req=$(jq -n -c '{ "body" : $ARGS.positional }' --args -- "$@")
@@ -1485,11 +1709,16 @@ function ucr_content_delete {
 }
 
 function ucr_help_content_download {
+  # TODO: needs updates
   cat <<EOF
 ucr content download <content id> [--expires_in=<seconds>]
   Returns a URL to download content from.
   --expires_in determines how long the URL is valid for.
 EOF
+}
+function ucr_spec_content_download {
+  reply=($'arg\t1\tcontent_id\trequired\tcompletion=freeform'
+    $'opt\texpires_in\tvalue\tregex=^[0-9]+$')
 }
 function ucr_content_download {
   # doesn't actually download, just returns a URL to download from.
@@ -1505,11 +1734,17 @@ function ucr_content_download {
 }
 
 function ucr_help_content_upload {
+  # TODO: needs updates
   cat <<EOF
 ucr content upload <content id> [--expires_in=<seconds>] [--type=<mime type>]
   Returns a curl command line to upload content to.
   --expires_in determines how long the URL is valid for.
 EOF
+}
+function ucr_spec_content_upload {
+  reply=($'arg\t1\tcontent_id\trequired\tcompletion=freeform'
+    $'opt\texpires_in\tvalue\tregex=^[0-9]+$'
+    $'opt\ttype\tvalue\tcompletion=freeform')
 }
 function ucr_content_upload {
   # Doesn't actually upload, just returns a cURL to upload to.
@@ -1539,6 +1774,9 @@ ucr device add <did>
   "ucr device activate" must be called afterwards to be able to write to it.
 EOF
 }
+function ucr_spec_device_add {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform')
+}
 function ucr_device_add {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local did=${1:?Need device id}
@@ -1552,16 +1790,23 @@ ucr device list
   Lists all devices.
 EOF
 }
+function ucr_spec_device_list {
+  reply=()
+}
 function ucr_device_list {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   _dis_call device2 listIdentities ""
 }
 
 function ucr_help_device_info {
+  # TODO: needs updates
   cat <<EOF
 ucr device info <did>
   Displays information about device service
 EOF
+}
+function ucr_spec_device_info {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform')
 }
 function ucr_device_info {
   ucr_service_details device2
@@ -1573,6 +1818,9 @@ ucr device state <did>
   Displays the current state of a device.
   This includes the set and reported values for resources.
 EOF
+}
+function ucr_spec_device_state {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform')
 }
 function ucr_device_state {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -1592,6 +1840,9 @@ ucr device timestamp <did>
   Most useful to make sure you can actually connect to the external API.
 EOF
 }
+function ucr_spec_device_timestamp {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform')
+}
 function ucr_device_timestamp {
   # This reads via the external HTTP API.
   local details=$(ucr_service_details device2)
@@ -1606,6 +1857,11 @@ ucr device write <did> <resource> <value>
   Records a resource value via the external HTTP API.
   Looks up the CIK via ENV as "UCR_CIK_\${did}"
 EOF
+}
+function ucr_spec_device_write {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform'
+    $'arg\t2\tresource\trequired\tcompletion=freeform'
+    $'arg\t3\tvalue\trequired\tcompletion=freeform')
 }
 function ucr_device_write {
   # This writes via the external HTTP API.
@@ -1638,6 +1894,12 @@ ucr device record <did> <resource> <ts> <value>
   Records a resource value via the external HTTP API.
   Looks up the CIK via ENV as "UCR_CIK_\${did}"
 EOF
+}
+function ucr_spec_device_record {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform'
+    $'arg\t2\tresource\trequired\tcompletion=freeform'
+    $'arg\t3\tts\trequired\tcompletion=freeform'
+    $'arg\t4\tvalue\trequired\tcompletion=freeform')
 }
 function ucr_device_record {
   # This writes via the external HTTP API.
@@ -1672,6 +1934,11 @@ ucr device exo write <did> <channel> <value> [<channel> <value> ...]
   Looks up the CIK via ENV as "UCR_CIK_\${did}"
 EOF
 }
+function ucr_spec_device_exo_write {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform'
+    $'arg\t2\tchannel\trequired\tpassthrough=true'
+    $'arg\t3\tvalue\trequired\tpassthrough=true')
+}
 function ucr_device_exo_write {
   # ExoSense wraps channels into a data_in resource
   # ucr device exo write <did> <channel> <value> [<channel> <value> ...]
@@ -1691,6 +1958,12 @@ ucr device exo record <did> <ts> <channel> <value> [<channel> <value> ...]
   Records channel values via the external HTTP API.
   Looks up the CIK via ENV as "UCR_CIK_\${did}"
 EOF
+}
+function ucr_spec_device_exo_record {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform'
+    $'arg\t2\tts\trequired\tcompletion=freeform'
+    $'arg\t3\tchannel\trequired\tpassthrough=true'
+    $'arg\t4\tvalue\trequired\tpassthrough=true')
 }
 function ucr_device_exo_record {
   # ExoSense wraps channels into a data_in resource
@@ -1714,6 +1987,10 @@ ucr device confirm <did> [<resource>]
   <resource> defaults to 'config_io'
 EOF
 }
+function ucr_spec_device_confirm {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform'
+    $'arg\t2\tresource\toptional\tcompletion=freeform')
+}
 function ucr_device_confirm {
   local did=${1:?Need device id}
   local rid=${2:-config_io}
@@ -1727,6 +2004,9 @@ function ucr_help_device_activate {
 ucr device activate <did>
   Activates a device via the external HTTP API.
 EOF
+}
+function ucr_spec_device_activate {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform')
 }
 function ucr_device_activate {
   # This activates via the external HTTP API.
@@ -1748,6 +2028,11 @@ ucr device content upload <did> <file> [<tag name>@<tag value> ...]
   Looks up the CIK via ENV as "UCR_CIK_\${did}", or uses UCR_CIK if that is not set.
   Tags are optional key/value pairs to associate with the content.
 EOS
+}
+function ucr_spec_device_content_upload {
+  reply=($'arg\t1\tdid\trequired\tcompletion=freeform'
+    $'arg\t2\tfile\trequired\tcompletion=freeform'
+    $'arg\t3\ttag\toptional\tpassthrough=true')
 }
 function ucr_device_content_upload {
   local did=${1:?Need device id}

@@ -324,7 +324,7 @@ function ucr_solution_list {
 
 function ucr_help_solution_create {
   cat <<EOF
-ucr solution create SID=<solution id> [BID=<business id>] [<options>] domain
+ucr solution create SID=<solution id> [BID=<business id>] [<options>] [domain]
   Creates a new solution
 
   Key-Values:
@@ -333,6 +333,7 @@ ucr solution create SID=<solution id> [BID=<business id>] [<options>] domain
   Options:
     --m2                Create an M2 Connector type solution instead of application
     --exchange=<ids>    Comma separated list of exchange ids to apply
+    --auto              Fill exchange header with all services
 
     --file=<template>   Use a specific template name
     --github=<url>      Use a github repo as the template source
@@ -340,9 +341,10 @@ ucr solution create SID=<solution id> [BID=<business id>] [<options>] domain
 EOF
 }
 function ucr_spec_solution_create {
-  reply=($'arg\t1\tdomain\trequired\tcompletion=freeform'
+  reply=($'arg\t1\tdomain\toptional\tcompletion=freeform'
     $'opt\tm2\tflag'
     $'opt\texchange\tvalue\tcompletion=freeform'
+    $'opt\tauto\tflag'
     $'opt\tfile\tvalue\tcompletion=freeform'
     $'opt\tgithub\tvalue\tcompletion=freeform'
     $'opt\tzip\tvalue\tcompletion=freeform')
@@ -351,7 +353,12 @@ function ucr_solution_create {
   want_envs UCR_API_URL "$ucr_api_url_pattern" \
     UCR_SID "^[a-zA-Z0-9]+$" \
     UCR_BID "^[a-zA-Z0-9]+$"
-  local domain=${1:?Need domain}
+  # local default_domain=$(echo $UCR_DIS_URL | sed -E 's|^https?://([^/]+).*|\1|' | sed -E 's|^pegasus-dispatcher.internal.||')
+  local root_domain=${${UCR_DIS_URL#*://}%%/*}
+  local default_domain=${UCR_SID}.apps.${root_domain#pegasus-dispatcher.internal.}
+  local domain=${1:-$default_domain}
+  # Take UCR_DIS_URL, grab the domain from url, remove `pegasus-dispatcher.internal.` (may not have internal) that should give us a root
+  # then `$SID.apps.$root` should be the domain for the new solution.
   local type="application" # or m2connector
   if [[ -n "$ucr_opts[m2]" ]]; then
     type="m2connector"
@@ -369,6 +376,10 @@ function ucr_solution_create {
   local exchangelist=''
   if [[ -n "$ucr_opts[exchange]" ]]; then
     exchangelist="X-exosite-exchange-id: $ucr_opts[exchange]"
+  elif [[ -n "$ucr_opts[auto]" ]]; then
+    ucr_opts[type]='C,X,E'
+    local services=$(ucr_service_installed | jq '[.items[].alias]|sort|join(",")' -r)
+    exchangelist="X-exosite-exchange-id: $services"
   fi
 
   local req=$(jq -n -c --arg type "$type" --arg domain "$domain" --argjson template "$template" '{
@@ -819,13 +830,18 @@ ucr solution update [--file=<template name>] [--github=[<url>]] [--zip=<url>] [-
     --github=<url>      Use a github repo as the template source, or repo from current directory
     --zip=<url>         Use a zip file url as the template source
     --force             Force update even if no changes detected
+    --exchange=<ids>    Comma separated list of exchange ids to apply
+    --auto              Fill exchange header with all services
 EOF
 }
 function ucr_spec_solution_update {
   reply=($'opt\tfile\tvalue\tcompletion=freeform'
     $'opt\tgithub\tvalue\tcompletion=freeform'
     $'opt\tzip\tvalue\tcompletion=freeform'
-    $'opt\tforce\tflag')
+    $'opt\tforce\tflag'
+    $'opt\texchange\tvalue\tcompletion=freeform'
+    $'opt\tauto\tflag'
+  )
 }
 function ucr_solution_update {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -850,6 +866,14 @@ function ucr_solution_update {
     from='zip'
     repo_url="$ucr_opts[zip]"
   fi
+  local exchangelist=''
+  if [[ -n "$ucr_opts[exchange]" ]]; then
+    exchangelist="X-exosite-exchange-id: $ucr_opts[exchange]"
+  elif [[ -n "$ucr_opts[auto]" ]]; then
+    ucr_opts[type]='C,X,E'
+    local services=$(ucr_service_installed | jq '[.items[].alias]|sort|join(",")' -r)
+    exchangelist="X-exosite-exchange-id: $services"
+  fi
 
   local req=$(jq -n -c --arg from "$from" --arg url "$repo_url" '{"from": $from, "url": $url}')
   [[ -z "$from" && -z "$repo_url" ]] && req='{}' # use current template
@@ -860,6 +884,7 @@ function ucr_solution_update {
   fi
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/update${forced} \
     -H 'Content-Type: application/json' \
+    -H "$exchangelist" \
     -d "$req"
 }
 

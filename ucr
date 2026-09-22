@@ -260,11 +260,38 @@ function ucr_solution_info {
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID}
 }
 
-# Someday todo: PUT to /solution/$sid to update solution info
-# While this can do a lot, many parts are not correct unless using the preferred (i'd say correct) API.
-# FE: templates should use the …/update, ENVs should use …/env, services should use …/serviceconfig, etc…
-# What's left? well, engine weird-isms (settings for engine that are in the solution)
-# 'resuse_vm' and 'quota.processing_time_daily'  that might be it…
+function ucr_help_solution_set {
+  cat <<EOF
+ucr solution set [<options>]
+  Set the processing time quota or reuse-vm flag
+  Options:
+    --reuse_vm=<boolean>  Set if reuse_vm is enabled or not
+    --time=<integer>      Set the daily processing time quota, in ms. fe: 864000000
+EOF
+}
+function ucr_spec_solution_set {
+  reply=($'opt\treuse_vm\tvalue\tdescription=Set if reuse_vm is enabled or not\tregex=^(true|1|yes|ok|y|t|false|no|n|f)$'
+    $'opt\ttime\tvalue\tdescription=Set the daily processing time quota\tregex=^[1-9][0-9]*$')
+}
+function ucr_solution_set {
+  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  local opt_req=$(
+    options_to_json \
+      reuse_vm::boolean "^(true|1|yes|ok|y|t|false|no|n|f)$" \
+      time "[1-9][0-9]*"
+  )
+  [[ -z "$opt_req" ]] && echo "No options given to set" >&2 && exit 1
+
+  local req=$(jq -n -c --argjson opt "$opt_req" '
+    (if $opt | has("time") then {quota: {processing_time_daily: $opt.time}} else {} end)
+    +
+    (if $opt | has("reuse_vm") then {reuse_vm: $opt.reuse_vm} else {} end)
+  ')
+
+  v_curl -s -X PUT ${UCR_API_URL}/solution/${UCR_SID} \
+    -H 'Content-Type: application/json' \
+    -d "$req"
+}
 
 function ucr_help_solution_list {
   cat <<EOF

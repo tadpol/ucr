@@ -1017,6 +1017,148 @@ function jmq_summary {
   fi
 }
 
+
+function jmq_help_release_create {
+  cat <<EOF
+jmq release-create <project> <release>
+  Create a release in the specified Jira project.
+EOF
+}
+function jmq_spec_release_create {
+  reply=($'arg\t1\tproject\trequired'
+         $'arg\t2\trelease\trequired')
+}
+function jmq_release_create {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$"
+  local project=${1:?Missing project}
+  local release=${2:?Missing release}
+  local project_id=$(v_curl -s https://${JMQ_HOST}/rest/api/3/project/${project} \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' |
+    jq -r '.id // empty')
+
+  if [[ -z "$project_id" ]]; then
+    echo "Unable to find Jira project ${project}" >&2
+    return 1
+  fi
+
+  v_curl -s -X POST https://${JMQ_HOST}/rest/api/3/version \
+    -H 'Content-Type: application/json' \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
+    -d "$(jq -n -c --arg name "$release" --argjson project "$project_id" \
+      '{name:$name, project:$project}')"
+}
+
+function jmq_help_release_set {
+  cat <<EOF
+jmq release-set <release> [<tickets…>]
+  Set the fixVersion for one or more tickets.
+EOF
+}
+function jmq_spec_release_set {
+  reply=($'arg\t1\trelease\trequired'
+         $'arg\t2\ttickets\toptional')
+}
+function jmq_release_set {
+  want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local release=${1:?Missing release}
+  shift
+  local keys=($@)
+  if [[ $# = 0 && ! -t 0 ]]; then
+    keys=(${(f)"$(cat)"})
+  fi
+  if [[ ${#keys} = 0 ]]; then
+    echo "No tickets specified.  Use jmq release-set <release> <tickets…>" >&2
+    exit 1
+  fi
+  # In place, replace any numbers with the project prefix.
+  for ((i = 1; i <= ${#keys}; i++)); do
+    if [[ ${keys[$i]} =~ "^[0-9]+$" ]]; then
+      keys[$i]=${JMQ_PROJECTS%%,*}-${keys[$i]}
+    fi
+  done
+
+  local req=$(jq -n -c --arg release "$release" \
+    '{"fields":{"fixVersions":[{"name":$release}]}}')
+  for key in $keys; do
+    v_curl -s -X PUT https://${JMQ_HOST}/rest/api/3/issue/${key} \
+      -H 'Content-Type: application/json' \
+      --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
+      -d "$req"
+  done
+}
+
+function jmq_help_release_ready {
+  cat <<EOF
+jmq release-ready <release> [--model=<string>] [--debug] [--dry]
+  Check all of the tickets for a release to see if they are ready.
+
+  --model=<string>   The model to use for the AI review. Default is set in `llm models default`
+  --debug            Print the tickets to be checked
+  --dry              Resolve the input without running the review
+
+  A ticket is ready when it is in the "Regression Testing" state, and
+  the Validation notes are filled out.  Specifically, the Validation notes must contain
+  three sections, what was done, how to test, and implementation details.  Each section
+  must have at least one line of text.  The the section on testing is NA or regressions or
+  similar, then the ticket must also have the FVT_NONEED label.  Otherwise the test instructions
+  must be clear and targeted to the staging environment.  The implementation details can be NA or
+  Not Applicable, otherwise it should be clear descriptions of migrations or env varible changes
+  or other implementation details that are needed by devops to support the change.
+EOF
+}
+function jmq_spec_release_ready {
+  reply=($'arg\t1\trelease\trequired'
+         $'opt\tmodel\tvalue\tdescription=Model to use for the AI review'
+         $'opt\tdebug\tflag\tdescription=Print the tickets to be checked'
+         $'opt\tdry\tflag\tdescription=Resolve input without running the review')
+}
+function jmq_release_ready {
+  want_envs JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
+  local release=${1:?Missing release}
+  local model=""
+  [ -n "${ucr_opts[model]}" ] && model="--model ${ucr_opts[model]}"
+
+  local jql="project in (${JMQ_PROJECTS}) AND fixVersion = \"${release}\""
+  local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql,
+    "fields": ["key", "summary", "description", "status", "customfield_12537", "assignee", "fixVersions", "labels"] }')
+  local data=$(v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
+    -H 'Content-Type: application/json' \
+    --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
+    -d "$req")
+
+  [[ -n "${ucr_opts[debug]}" ]] && jq -r '.issues[].key' <<<"$data" |sort >&2
+
+  [[ -z "${ucr_opts[stop]}" ]] || exit 0
+
+  local prompt='
+    You are a QA engineer with a keen eye for detail.  You are reviewing tickets for a release to see if they are ready.
+
+    A ticket is ready when it is in the "Regression Testing" status, and
+    the Validation Notes (customfield_12537) are filled out.  Specifically, the Validation notes must
+    contain three sections, what was done, how to test, and implementation details.
+
+    The section for what was done must descibe work related to the description.  It can be empty only
+    if the label FVT_NONEED is present.
+
+    The section on testing must contain clear and targeted instructions to test the change in the
+    staging environment. The test section can be empty only if the label FVT_NONEED is present. The
+    test section can also be just "NA" or "Not Applicable" or "Regressions" or similar only if the
+    label FVT_NONEED is present.
+
+    The section on implementation details must contain clear descriptions of migrations or env varible
+    changes or other implementation details that are needed by devops to support the change. The
+    implementation details can be empty or just "NA" or "Not Applicable" or similar.
+
+    If all tickets are ready, then print "All tickets are ready for release ${release}".
+    Otherwise, print a list of tickets that are not ready, and for each ticket
+    print "- <ticket key> (<assignee>): <reason why not ready>"
+  '
+
+  llm --no-log --hide-reasoning --system "$prompt" "${=model}" <<<"$data"
+
+}
+
+
 ##############################################################################
 # Finally, run the task runner to find and run the task based on arguments
 task_runner "$@"

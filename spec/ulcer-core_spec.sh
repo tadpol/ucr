@@ -103,6 +103,11 @@ EOF
       The output should equal '{"x":"yes"}'
     End
 
+    It 'escapes string values as valid JSON'
+      When call zsh -f -c 'argv0=fixture; HOME=/nonexistent; source "$1"; ucr_opts[s]=$2; options_to_json s::string "^.*$"' zsh "$CORE" 'a"b'
+      The output should equal '{"s":"a\"b"}'
+    End
+
     It 'converts explicit number and false boolean values'
       When call zsh -f -c 'argv0=fixture; HOME=/nonexistent; source "$1"; ucr_opts[count]=007; ucr_opts[enabled]=false; options_to_json count::number "^[0-9]+$" enabled::boolean "^(true|false)$"' zsh "$CORE"
       The status should be success

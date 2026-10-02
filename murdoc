@@ -321,13 +321,14 @@ function murdoc_mongo {
     url=$(fzf --select-1 --no-multi --nth=2 --with-nth=1 --height 30% <<< $from | awk '{print $2}' )
   fi
 
+  shift
   # Because mongo does magic with URLs, we cannot jump or hop
 
   # check for 'mongo' or 'mongosh' and use that.
   if command -v mongosh >/dev/null 2>&1; then
-    mongosh --verbose "${url}"
+    mongosh --verbose "${url}" "$@"
   else
-    mongo "${url}"
+    mongo "${url}" "$@"
   fi
 }
 

@@ -200,6 +200,42 @@ dest=/path/to/extract/thing
 EOE
 }
 
+function worldbuilder_help_doctor {
+  cat <<EOF
+worldbuilder doctor
+  Checks the current environment for required tools and dependencies.
+EOF
+}
+function worldbuilder_doctor {
+  local docker_tool=${WORLDBUILDER_DOCKER_TOOL:-docker}
+  local missing=()
+
+  # Check for required tools
+  for tool in git yq mlr fzf trivy $docker_tool; do
+    if ! command -v $tool >/dev/null 2>&1; then
+      missing+=("$tool")
+    fi
+  done
+
+  if (( ${#missing[@]} > 0 )); then
+    _error "Missing required tools: ${missing[*]}"
+    return 1
+  fi
+
+  # Check for WORLDBUILDER_FILE
+  if [[ -z "$WORLDBUILDER_FILE" ]]; then
+    _error "WORLDBUILDER_FILE is not set. Please set it to your worldbuilder config file."
+    return 1
+  elif [[ ! -f "$WORLDBUILDER_FILE" ]]; then
+    _error "WORLDBUILDER_FILE ($WORLDBUILDER_FILE) does not exist."
+    return 1
+  fi
+
+  echo "Environment looks good."
+}
+
+###################################################################################################
+
 function worldbuilder_help_clone {
   cat <<EOF
 worldbuilder clone <section>

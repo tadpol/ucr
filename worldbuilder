@@ -17,6 +17,18 @@ else
 fi
 
 ##############################################################################
+
+function _verbose {
+  [[ -n "${ucr_opts[v]}" || "${ucr_opts[verbose]}" ]] && echo ": $@" >&2
+}
+function _debug {
+  [[ "${ucr_opts[debug]}" ]] && echo "d: $@" >&2
+}
+function _error {
+  echo "E! $@" >&2
+}
+
+##############################################################################
 # Define the tasks for this tool
 
 function worldbuilder_help {
@@ -62,15 +74,15 @@ function _worldbuilder_config {
 
   case "$format" in
     ini|toml) ;;
-    *) echo "Unsupported worldbuilder config format: .$format" >&2; return 2 ;;
+    *) _error "Unsupported worldbuilder config format: .$format"; return 2 ;;
   esac
-  [[ -f "$file" ]] || { echo "Worldbuilder config not found: $file" >&2; return 2; }
+  [[ -f "$file" ]] || { _error "Worldbuilder config not found: $file"; return 2; }
 
   if [[ $# -gt 2 ]]; then
     for key in "${@:3}"; do
       WB_SCOPE=$section WB_KEY=$key yq "${yq_args[@]}" \
         -e '.[strenv(WB_SCOPE)] | has(strenv(WB_KEY))' "$file" >/dev/null 2>/dev/null || {
-        echo "Missing worldbuilder key [$section].$key" >&2
+        _error "Missing worldbuilder key [$section].$key"
         return 2
       }
       WB_SCOPE=$section WB_KEY=$key yq "${yq_args[@]}" \
@@ -79,7 +91,7 @@ function _worldbuilder_config {
   else
     WB_SCOPE=$section yq "${yq_args[@]}" -e \
       '.[strenv(WB_SCOPE)] | to_entries[] | [.key, (.value // "")] | .[]' "$file" || {
-      echo "Missing worldbuilder section: $section" >&2
+      _error "Missing worldbuilder section: $section"
       return 2
     }
   fi
@@ -96,7 +108,7 @@ function _worldbuilder_load {
   }
   while IFS= read -r -d '' key && IFS= read -r -d '' value; do
     [[ "$key" =~ '^[a-zA-Z_][a-zA-Z0-9_]*$' ]] || {
-      echo "Invalid worldbuilder key: $key" >&2
+      _error "Invalid worldbuilder key: $key"
       rm -f "$tmp"
       return 2
     }
@@ -118,9 +130,9 @@ function worldbuilder_sections {
   local format=${WORLDBUILDER_FILE:e:l}
   case "$format" in
     ini|toml) ;;
-    *) echo "Unsupported worldbuilder config format: .$format" >&2; return 2 ;;
+    *) _error "Unsupported worldbuilder config format: .$format"; return 2 ;;
   esac
-  [[ -f "$WORLDBUILDER_FILE" ]] || { echo "Worldbuilder config not found: $WORLDBUILDER_FILE" >&2; return 2; }
+  [[ -f "$WORLDBUILDER_FILE" ]] || { _error "Worldbuilder config not found: $WORLDBUILDER_FILE"; return 2; }
   yq -p "$format" -o yaml -r 'keys[]' "$WORLDBUILDER_FILE"
 }
 
@@ -304,7 +316,7 @@ function worldbuilder_where {
   local format=${WORLDBUILDER_FILE:e:l}
   case "$format" in
     ini|toml) ;;
-    *) echo "Unsupported worldbuilder config format: .$format" >&2; return 2 ;;
+    *) _error "Unsupported worldbuilder config format: .$format"; return 2 ;;
   esac
 
   if [[ $# == 0 ]]; then
@@ -352,7 +364,7 @@ function worldbuilder_switch {
   want_envs dir "^.+$" commit "^.*$"
   [[ $# -gt 1 ]] && commit=${2:-$commit}
   if [[ -z "$commit" ]]; then
-    echo "No commit to switch to" >&2
+    _error "No commit to switch to"
     exit 1
   fi
   (
@@ -361,6 +373,8 @@ function worldbuilder_switch {
     git switch $commit
   )
 }
+
+###################################################################################################
 
 function worldbuilder_help_audit {
   cat <<EOF
@@ -480,7 +494,7 @@ function worldbuilder_build {
     fi
 
     if [[ -n "$build_pre_cmd" ]]; then
-      echo "Running pre-build command…" >&2
+      _verbose "Running pre-build command…"
       _worldbuilder_run_cmd "$build_pre_cmd" || exit $?
     fi
 
@@ -504,12 +518,12 @@ function worldbuilder_build {
       fi
 
     else
-      echo "Unknown type: $type" >&2
+      _error "Unknown type: $type"
       exit 1
     fi
 
     if [[ -n "$build_post_cmd" ]]; then
-      echo "Running post-build command…" >&2
+      _verbose "Running post-build command…"
       _worldbuilder_run_cmd "$build_post_cmd" || exit $?
     fi
 
@@ -568,7 +582,7 @@ function worldbuilder_inject {
       rclone sync --progress ${tmpdir}/ ${host//:/-}:${dest} --header-upload "cache-control:no-cache"
       rm -rf ${tmpdir}
     else
-      echo "Unknown type: $type" >&2
+      _error "Unknown type: $type"
       exit 1
     fi
   }
@@ -577,6 +591,8 @@ function worldbuilder_inject {
 
   zargs -P 5 -l 1 -- ${=WORLDBUILD_HOST} -- upload_one
 }
+
+###################################################################################################
 
 function worldbuilder_help_all {
   cat <<EOF
@@ -610,7 +626,7 @@ function worldbuilder_all {
   local action=${1:-build}
   local allowed=(audit build clone inject update)
   if [[ ! " ${allowed[@]} " =~ " ${action} " ]]; then
-    echo "Unknown action: $action" >&2
+    _error "Unknown action: $action"
     exit 1
   fi
   shift

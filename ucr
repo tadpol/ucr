@@ -1911,7 +1911,7 @@ function ucr_content_upload {
   [[ -z "$opt_req" ]] && exit 4
 
   # A GET req with url encoded file name and query options for the rest.
-  local req=$(jq -n -c --arg cid "$cid" '{"id": $cid|@uri }')
+  local req=$(jq -n -c --arg cid "$cid" '{"id": $cid }')
   local psu=$(_dis_call content upload "$req")
 
   # Convert to new curl params

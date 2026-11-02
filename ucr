@@ -416,6 +416,205 @@ function ucr_solution_delete {
 }
 
 ####################
+# Event handlers
+
+function ucr_ev_resolve_id {
+  if [[ $1 == _* ]]; then
+    print -r -- "${UCR_SID}$1"
+  else
+    print -r -- "$1"
+  fi
+}
+
+function ucr_ev_validate_patterns {
+  if [[ -n ${ucr_opts[service]} && ( ${ucr_opts[script_key]} == '*' || ${ucr_opts[script_key]} == 'P/*' ) ]]; then
+    echo "Option --script_key patterns '*' and 'P/*' require --service to be omitted" >&2
+    exit 3
+  fi
+}
+
+function ucr_help_ev_list {
+  cat <<EOF
+ucr ev list
+  List all event handlers for a solution
+
+  Options:
+    --select=<fields>  Comma-separated fields to return
+                       Default: id,name,alias,solution_id,service,script_key,event,created_at,updated_at
+                       Available: id,name,alias,solution_id,service,script_key,event,created_at,updated_at,script,source_map,workset
+
+EOF
+}
+function ucr_spec_ev_list {
+  reply=($'opt\tselect\tvalue\tcompletion=freeform\tdescription=Comma-separated event-handler fields to return\tregex=^(id|name|alias|solution_id|service|script_key|event|created_at|updated_at|script|source_map|workset)(,(id|name|alias|solution_id|service|script_key|event|created_at|updated_at|script|source_map|workset))*$')
+}
+function ucr_ev_list {
+  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  local select_opts=$(options_to_json select::string '^(id|name|alias|solution_id|service|script_key|event|created_at|updated_at|script|source_map|workset)(,(id|name|alias|solution_id|service|script_key|event|created_at|updated_at|script|source_map|workset))*$')
+  local select_param=$(jq -r 'if has("select") then "&select=\(.select|@uri)" else "" end' <<<$select_opts)
+  local q=$(jq -c -n -r '{"solution_id": $ENV.UCR_SID} | @uri')
+
+  v_curl -s "${UCR_API_URL}/eventhandler?query=${q}${select_param}"
+}
+
+function ucr_help_ev_create {
+  cat <<EOF
+ucr ev create [--name=<name>] [--service=<service>] [--script_key=<key>] [--event=<event>] [--script=<lua>] [--workset=<json>]
+  Create an event handler for the current solution.
+
+  The solution_id is taken from UCR_SID. Supply --service or --script_key;
+  use --script_key when the service does not exist yet or is generated dynamically.
+
+  Options:
+    --name=<name>           Optional user-defined name (up to 100 characters)
+    --service=<service>     Service alias (up to 50 lowercase letters or digits)
+    --script_key=<key>      Script key (2-63 alphanumeric characters, not starting with a digit); patterns '*' and 'P/*' are allowed if --service is omitted
+    --event=<event>         Event name (2-50 characters; starts with a letter, then letters, digits, or underscores; '*' matches any event)
+    --script=<lua>          Lua script (up to 1,000,000 characters)
+    --workset=<json>        JSON array of data-flow worksets to follow
+    --debug                 Print the generated request details to stderr
+EOF
+}
+function ucr_spec_ev_create {
+  reply=($'opt\tname\tvalue\tcompletion=freeform\tdescription=User-defined name, up to 100 characters\tregex=(?s)^.{0,100}$'
+    $'opt\tservice\tvalue\tcompletion=freeform\tdescription=Service alias; lowercase letters and digits, up to 50 characters\tregex=^[a-z0-9]{1,50}$'
+    $'opt\tscript_key\tvalue\tcompletion=freeform\tdescription=Script key; 2-63 alphanumeric characters, or * or P/* without service\tregex=^(\\*|P/\\*|[a-zA-Z][a-zA-Z0-9]{1,62})$'
+    $'opt\tevent\tvalue\tcompletion=freeform\tdescription=Event name; starts with a letter and is 2-50 characters, or * for any event\tregex=^(\\*|[a-zA-Z][a-zA-Z0-9_]{1,49})$'
+    $'opt\tscript\tvalue\tcompletion=freeform\tdescription=User-defined Lua script, up to 1,000,000 characters'
+    $'opt\tworkset\tvalue\tcompletion=freeform\tdescription=JSON array of data-flow worksets to follow'
+    $'opt\tdebug\tflag\tdescription=Print generated request details to stderr')
+}
+function ucr_ev_create {
+  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  ucr_ev_validate_patterns
+
+  (( ${#ucr_opts[script]} <= 1000000 )) || {
+    echo "Option: 'script' exceeds maximum length of 1000000" >&2
+    exit 3
+  }
+
+  local create_opts=$(
+    options_to_json \
+      name::string '(?s)^.{0,100}$' \
+      service::string '^[a-z0-9]{1,50}$' \
+      script_key::string '^(\*|P/\*|[a-zA-Z][a-zA-Z0-9]{1,62})$' \
+      event::string '^(\*|[a-zA-Z][a-zA-Z0-9_]{1,49})$' \
+      script::string '(?s).*' \
+      workset::json '(?s).*'
+  )
+  [[ -z "${ucr_opts[debug]}" ]] || echo ": $create_opts" >&2
+
+  # Build the request body
+  local req=$(jq -c '. + { "solution_id": $ENV.UCR_SID }' <<<"$create_opts")
+  [[ -z "${ucr_opts[debug]}" ]] || echo "Req: $req" >&2
+
+  v_curl -s ${UCR_API_URL}/eventhandler \
+    -H 'Content-Type: application/json' \
+    -X POST \
+    -d "$req"
+}
+
+function ucr_help_ev_update {
+  cat <<EOF
+ucr ev update <event handler id> [--name=<name>] [--service=<service>] [--script_key=<key>] [--event=<event>] [--script=<lua>] [--workset=<json>]
+  Update the supplied fields of an event handler for the current solution.
+
+  The event handler id is a UUID, full alias (<solution_id>_<service>_<event>),
+  or alias suffix beginning with '_' (for example, _config_fallback). The current
+  UCR_SID is prefixed to an alias suffix. Supply only fields to change.
+
+  Options:
+    --name=<name>           User-defined name (up to 100 characters)
+    --service=<service>     Service alias (up to 50 lowercase letters or digits)
+    --script_key=<key>      Script key (2-63 alphanumeric characters, not starting with a digit); patterns '*' and 'P/*' are allowed if --service is omitted
+    --event=<event>         Event name (2-50 characters; starts with a letter, then letters, digits, or underscores; '*' matches any event)
+    --script=<lua>          Lua script (up to 1,000,000 characters)
+    --workset=<json>        JSON array of data-flow worksets to follow
+    --debug                 Print the generated request details to stderr
+EOF
+}
+function ucr_spec_ev_update {
+  reply=($'arg\t1\tevent_handler_id\trequired\tcompletion=freeform'
+    $'opt\tname\tvalue\tcompletion=freeform\tdescription=User-defined name, up to 100 characters\tregex=(?s)^.{0,100}$'
+    $'opt\tservice\tvalue\tcompletion=freeform\tdescription=Service alias; lowercase letters and digits, up to 50 characters\tregex=^[a-z0-9]{1,50}$'
+    $'opt\tscript_key\tvalue\tcompletion=freeform\tdescription=Script key; 2-63 alphanumeric characters, or * or P/* without service\tregex=^(\\*|P/\\*|[a-zA-Z][a-zA-Z0-9]{1,62})$'
+    $'opt\tevent\tvalue\tcompletion=freeform\tdescription=Event name; starts with a letter and is 2-50 characters, or * for any event\tregex=^(\\*|[a-zA-Z][a-zA-Z0-9_]{1,49})$'
+    $'opt\tscript\tvalue\tcompletion=freeform\tdescription=User-defined Lua script, up to 1,000,000 characters'
+    $'opt\tworkset\tvalue\tcompletion=freeform\tdescription=JSON array of data-flow worksets to follow'
+    $'opt\tdebug\tflag\tdescription=Print generated request details to stderr')
+}
+function ucr_ev_update {
+  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  local ev_id=${1:?Need event handler id}
+  ev_id=$(ucr_ev_resolve_id "$ev_id")
+  ucr_ev_validate_patterns
+
+  (( ${#ucr_opts[script]} <= 1000000 )) || {
+    echo "Option: 'script' exceeds maximum length of 1000000" >&2
+    exit 3
+  }
+
+  local update_req=$(
+    options_to_json \
+      name::string '(?s)^.{0,100}$' \
+      service::string '^[a-z0-9]{1,50}$' \
+      script_key::string '^(\*|P/\*|[a-zA-Z][a-zA-Z0-9]{1,62})$' \
+      event::string '^(\*|[a-zA-Z][a-zA-Z0-9_]{1,49})$' \
+      script::string '(?s).*' \
+      workset::json '(?s).*'
+  )
+  [[ -z "${ucr_opts[debug]}" ]] || echo ": $update_req" >&2
+
+  v_curl -s "${UCR_API_URL}/eventhandler/${ev_id}" \
+    -H 'Content-Type: application/json' \
+    -X PUT \
+    -d "$update_req"
+}
+
+function ucr_help_ev_info {
+  cat <<EOF
+ucr ev info <event handler id>
+  Get information about an event handler
+
+  Event handler id may be a UUID, full alias (<solution_id>_<service>_<event>),
+  or alias suffix beginning with '_' (for example, _config_fallback). The current
+  UCR_SID is prefixed to an alias suffix.
+EOF
+}
+function ucr_spec_ev_info {
+  reply=($'arg\t1\tevent_handler_id\trequired\tcompletion=freeform')
+}
+function ucr_ev_info {
+  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  local ev_id=${1:?Need event handler id}
+  ev_id=$(ucr_ev_resolve_id "$ev_id")
+
+  v_curl -s "${UCR_API_URL}/eventhandler/${ev_id}"
+}
+
+function ucr_help_ev_delete {
+  cat <<EOF
+ucr ev delete <event handler id>
+  Delete an event handler
+
+  Event handler id may be a UUID, full alias (<solution_id>_<service>_<event>),
+  or alias suffix beginning with '_' (for example, _config_fallback). The current
+  UCR_SID is prefixed to an alias suffix.
+EOF
+}
+function ucr_spec_ev_delete {
+  reply=($'arg\t1\tevent_handler_id\trequired\tcompletion=freeform')
+}
+function ucr_ev_delete {
+  want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
+  local ev_id=${1:?Need event handler id}
+  ev_id=$(ucr_ev_resolve_id "$ev_id")
+
+  v_curl -s -X DELETE "${UCR_API_URL}/eventhandler/${ev_id}"
+}
+
+
+####################
 # Service Config
 
 function ucr_help_services {

@@ -20,3 +20,97 @@ Describe 'ucr device list'
     The stderr should include 'Option --tag.value requires --tag.name'
   End
 End
+
+Describe 'ucr ev list'
+  UCR="$PWD/ucr"
+
+  It 'serializes selected fields as a comma-separated query parameter'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev list --select=id,name,script --curl --dry
+    The status should be success
+    The stderr should include 'select=id%2Cname%2Cscript'
+  End
+
+  It 'rejects fields outside the Swagger enum'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev list --select=id,invalid --dry
+    The status should equal 2
+    The stderr should include 'Option --select has invalid value: id,invalid'
+  End
+End
+
+Describe 'ucr event handler tasks'
+  UCR="$PWD/ucr"
+
+  It 'creates an event handler with a JSON request body'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev create --name=alarm --service=weather --event=on_start --script='return 1' --debug --curl --dry
+    The status should be success
+    The output should equal ''
+    The stderr should include 'https://example.com/eventhandler'
+    The stderr should include '-X POST'
+    The stderr should include '"solution_id":"test"'
+    The stderr should include '"name":"alarm"'
+    The stderr should include '"service":"weather"'
+    The stderr should include '"event":"on_start"'
+    The stderr should include '"script":"return 1"'
+  End
+
+  It 'accepts wildcard event and script-key patterns without a service'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev create --event='*' --script_key='P/*' --script='return 1' --debug --curl --dry
+    The status should be success
+    The stderr should include '"event":"*"'
+    The stderr should include '"script_key":"P/*"'
+  End
+
+  It 'updates only supplied event handler fields'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev update ev-123 --name=updated --debug --curl --dry
+    The status should be success
+    The output should equal ''
+    The stderr should include 'https://example.com/eventhandler/ev-123'
+    The stderr should include '-X PUT'
+    The stderr should include '{"name":"updated"}'
+  End
+
+  It 'accepts a wildcard script key without a service when updating'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev update ev-123 --event='*' --script_key='*' --debug --curl --dry
+    The status should be success
+    The stderr should include '"script_key":"*"'
+    The stderr should include '"event":"*"'
+  End
+
+  It 'rejects wildcard script keys when a service is supplied'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev create --service=weather --script_key='*' --dry
+    The status should equal 3
+    The stderr should include "Option --script_key patterns '*' and 'P/*' require --service to be omitted"
+  End
+
+  It 'gets an event handler by id'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev info ev-123 --curl --dry
+    The status should be success
+    The output should equal ''
+    The stderr should include 'https://example.com/eventhandler/ev-123'
+  End
+
+  It 'deletes an event handler by id'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev delete ev-123 --curl --dry
+    The status should be success
+    The output should equal ''
+    The stderr should include '-X DELETE https://example.com/eventhandler/ev-123'
+  End
+
+  It 'prefixes UCR_SID to an alias suffix when updating'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev update _config_fallback --name=updated --curl --dry
+    The status should be success
+    The stderr should include 'https://example.com/eventhandler/test_config_fallback'
+  End
+
+  It 'prefixes UCR_SID to an alias suffix when getting'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev info _config_fallback --curl --dry
+    The status should be success
+    The stderr should include 'https://example.com/eventhandler/test_config_fallback'
+  End
+
+  It 'prefixes UCR_SID to an alias suffix when deleting'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev delete _config_fallback --curl --dry
+    The status should be success
+    The stderr should include '-X DELETE https://example.com/eventhandler/test_config_fallback'
+  End
+End

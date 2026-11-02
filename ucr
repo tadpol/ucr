@@ -2065,7 +2065,8 @@ function ucr_device_write {
   local res=${2:?Need a resource to write}
   local val=${3:?Need a value}
   local details=$(ucr_service_details device2)
-  local d_host=$(jq -r .parameters.fqdn <<<$details)
+  local d_host=$(jq -r '.parameters.fqdn // ""' <<<$details)
+  [[ -n "$d_host" ]] || { echo "Could not get device service host" >&2; return 1; }
   local vm=$(jq -r .solution_id <<<$details)
   local cik=$UCR_CIK
   # if UCR_CIK_<did> is set, use that instead
@@ -2104,7 +2105,8 @@ function ucr_device_record {
   local ts=${3:?Need a timestamp}
   local val=${4:?Need a value}
   local details=$(ucr_service_details device2)
-  local d_host=$(jq -r .parameters.fqdn <<<$details)
+  local d_host=$(jq -r '.parameters.fqdn // ""' <<<$details)
+  [[ -n "$d_host" ]] || { echo "Could not get device service host" >&2; return 1; }
   local vm=$(jq -r .solution_id <<<$details)
   local cik=$UCR_CIK
   # if UCR_CIK_<did> is set, use that instead

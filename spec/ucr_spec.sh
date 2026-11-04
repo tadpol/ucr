@@ -37,6 +37,35 @@ Describe 'ucr ev list'
   End
 End
 
+Describe 'ucr logs'
+  UCR="$PWD/ucr"
+
+  It 'serializes filters into the API query parameter'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" logs --limit=10 --offset=5 --severity=1,2 --timestamp=100,200 --message='x.*[y]' --event=evt_a,evt_b --curl --dry
+    The status should be success
+    The output should equal ''
+    The stderr should include 'limit=10'
+    The stderr should include 'offset=5'
+    The stderr should include '%22severity%22%3A%7B%22%24in%22%3A%5B1%2C2%5D%7D'
+    The stderr should include '%22timestamp%22%3A%7B%22%24gte%22%3A100%2C%22%24lte%22%3A200%7D'
+    The stderr should include '%22message%22%3A%7B%22%24regex%22%3A%22.%2Ax%5C%5C.%5C%5C%2A%5C%5C%5By%5C%5C%5D.%2A%22%7D'
+    The stderr should include '%22event%22%3A%7B%22%24in%22%3A%5B%22evt_a%22%2C%22evt_b%22%5D%7D'
+  End
+
+  It 'omits the query parameter when no filters are given'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" logs --limit=10 --curl --dry
+    The status should be success
+    The stderr should include 'limit=10'
+    The stderr should not include 'query='
+  End
+
+  It 'rejects malformed severity lists'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" logs --severity=1,nope --dry
+    The status should equal 2
+    The stderr should include 'Option --severity has invalid value: 1,nope'
+  End
+End
+
 Describe 'ucr event handler tasks'
   UCR="$PWD/ucr"
 

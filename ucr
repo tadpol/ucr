@@ -1088,15 +1088,23 @@ function ucr_solution_update {
 }
 
 function ucr_help_logs {
-  # TODO: needs updates
   cat <<EOF
-ucr logs [--limit=] [--offset=]
+ucr logs [--limit=<n>] [--offset=<n>] [filters]
   Get solution logs
+
+  --severity=<n,n,...>       Match any listed severity
+  --timestamp=<start,end>    Match the inclusive epoch-millisecond range
+  --message=<text>           Match messages containing literal text
+  --event=<name,name,...>    Match any listed event
 EOF
 }
 function ucr_spec_logs {
-  reply=($'opt\tlimit\tvalue\tregex=^[1-9][0-9]*$'
-    $'opt\toffset\tvalue\tregex=^[1-9][0-9]*$')
+  reply=($'opt\tlimit\tvalue\tdescription=Maximum number of logs to return\tregex=^[1-9][0-9]*$'
+    $'opt\toffset\tvalue\tdescription=Number of logs to skip\tregex=^[1-9][0-9]*$'
+    $'opt\tseverity\tvalue\tdescription=Comma-separated severity numbers\tregex=^[0-9]+(,[0-9]+)*$'
+    $'opt\ttimestamp\tvalue\tdescription=Inclusive start,end epoch-millisecond range\tregex=^[0-9]+,[0-9]+$'
+    $'opt\tmessage\tvalue\tdescription=Literal text contained in a log message\tregex=(?s)^.*$'
+    $'opt\tevent\tvalue\tdescription=Comma-separated event names\tregex=^[^,]+(,[^,]+)*$')
 }
 function ucr_logs {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
@@ -1107,9 +1115,33 @@ function ucr_logs {
   )
   [[ -z "$opt_req" ]] && exit 4
 
-  local q=$(jq -r 'to_entries|map("\(.key)=\(.value)")|join("&")' <<<$opt_req)
+  local opt_filters=$(
+    options_to_json \
+      severity::array "^[0-9]+(,[0-9]+)*$" \
+      timestamp::string "^[0-9]+,[0-9]+$" \
+      message::string "(?s)^.*$" \
+      event::array "^[^,]+(,[^,]+)*$"
+  )
+  local query=$(jq -c '
+    def regex_escape:
+      explode
+      | map(. as $c
+          | (if [92, 46, 94, 36, 124, 63, 42, 43, 40, 41, 91, 93, 123, 125] | index($c) then "\\" else "" end)
+            + ([$c] | implode))
+      | join("");
+    . as $filters
+    | {}
+    + (if ($filters | has("severity")) then {severity: {"$in": ($filters.severity | map(tonumber))}} else {} end)
+    + (if ($filters | has("timestamp")) then ($filters.timestamp | split(",") | {timestamp: {"$gte": (.[0] | tonumber), "$lte": (.[1] | tonumber)}}) else {} end)
+    + (if ($filters | has("message")) then {message: {"$regex": (".*" + ($filters.message | regex_escape) + ".*")}} else {} end)
+    + (if ($filters | has("event")) then {event: {"$in": $filters.event}} else {} end)
+  ' <<<$opt_filters)
+  local q=$(jq -r --arg query "$query" '
+    . + (if $query != "{}" then {query: ($query | @uri)} else {} end)
+    | to_entries | map("\(.key)=\(.value)") | join("&")
+  ' <<<$opt_req)
 
-  v_curl -s ${UCR_API_URL}/solution/${UCR_SID}/logs\?${q}
+  v_curl -s "${UCR_API_URL}/solution/${UCR_SID}/logs?${q}"
 }
 
 ####################

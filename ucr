@@ -856,18 +856,30 @@ function ucr_service_quota_get {
 
 function ucr_help_service_add {
   cat <<EOF
-ucr service add <service>
+ucr service add <service> [--script_key=<key>] [--name=<name>]
   Add a service to the solution.
   The <service> can be the name of an IoT Connector to link, or a service name.
+
+  Options:
+    --script_key=<key>  Script key (2-63 alphanumeric characters, starting with a letter)
+    --name=<name>       Optional user-defined name (up to 100 characters)
 EOF
 }
 function ucr_spec_service_add {
-  reply=($'arg\t1\tservice\trequired\tcompletion=freeform')
+  reply=($'arg\t1\tservice\trequired\tcompletion=freeform'
+    $'opt\tscript_key\tvalue\tcompletion=freeform\tdescription=Script key; 2-63 alphanumeric characters, starting with a letter\tregex=^[a-zA-Z][a-zA-Z0-9]{1,62}$'
+    $'opt\tname\tvalue\tcompletion=freeform\tdescription=Optional user-defined name, up to 100 characters\tregex=(?s)^.{0,100}$')
 }
 function ucr_service_add {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   local service=${1:?Need service name}
-  local req=$(jq -n -c --arg service "${(L)service}" --arg sid "$UCR_SID" '{"solution_id": $sid, "service": $service}')
+  local opt_req=$(
+    options_to_json \
+      script_key::string '^[a-zA-Z][a-zA-Z0-9]{1,62}$' \
+      name::string '(?s)^.{0,100}$'
+  )
+  local req=$(jq -c --arg service "${(L)service}" --arg sid "$UCR_SID" \
+    '. + {"solution_id": $sid, "service": $service}' <<<"$opt_req")
   v_curl -s ${UCR_API_URL}/serviceconfig \
     -H 'Content-Type: application/json' \
     -d "$req"

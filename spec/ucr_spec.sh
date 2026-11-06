@@ -21,6 +21,30 @@ Describe 'ucr device list'
   End
 End
 
+Describe 'ucr service add'
+  UCR="$PWD/ucr"
+
+  It 'adds a service without optional values'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" service add weather --debug --curl --dry
+    The status should be success
+    The stderr should include '"solution_id":"test"'
+    The stderr should include '"service":"weather"'
+  End
+
+  It 'includes supplied script key and name in the request'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" service add weather --script_key=weatherV1 --name='Weather Service' --debug --curl --dry
+    The status should be success
+    The stderr should include '"script_key":"weatherV1"'
+    The stderr should include '"name":"Weather Service"'
+  End
+
+  It 'rejects a script key that starts with a digit'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" service add weather --script_key=1weather --dry
+    The status should equal 2
+    The stderr should include 'Option --script_key has invalid value: 1weather'
+  End
+End
+
 Describe 'ucr ev list'
   UCR="$PWD/ucr"
 

@@ -98,7 +98,7 @@ function ucr_spec_for {
 }
 
 function ucr_validate_specs {
-  local record type name kind attr key value optkey passthrough
+  local record type name kind attr key value optkey passthrough variadic
   local -a fields
   for record in "${ucr_spec_records[@]}"; do
     fields=("${(@ps:\t:)record}")
@@ -130,7 +130,7 @@ function ucr_validate_specs {
       done
     fi
   done
-  [[ ${ucr_spec_has_task:-false} != true || ( $passthrough == true && ${ucr_spec_passthrough:-false} == true ) || $# -le ${ucr_spec_max_positionals:-0} ]] || {
+  [[ ${ucr_spec_has_task:-false} != true || $variadic == true || ( $passthrough == true && ${ucr_spec_passthrough:-false} == true ) || $# -le ${ucr_spec_max_positionals:-0} ]] || {
     echo "Too many positional arguments" >&2; return 2
   }
 }

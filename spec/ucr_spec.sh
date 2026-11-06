@@ -21,6 +21,23 @@ Describe 'ucr device list'
   End
 End
 
+Describe 'ucr env set'
+  UCR="$PWD/ucr"
+
+  It 'sets multiple key/value pairs'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" env set FIRST one SECOND two --curl --dry
+    The status should be success
+    The output should equal ''
+    The stderr should include '-d {"FIRST":"one","SECOND":"two"}'
+  End
+
+  It 'rejects an unmatched key'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" env set FIRST one SECOND --curl --dry
+    The status should equal 2
+    The stderr should include 'Expected key/value pairs'
+  End
+End
+
 Describe 'ucr service add'
   UCR="$PWD/ucr"
 

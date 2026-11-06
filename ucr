@@ -202,7 +202,7 @@ EOF
 }
 function ucr_spec_env_set {
   reply=($'arg\t1\tkey\trequired'
-    $'arg\t2\tvalue\trequired\tpassthrough=true'
+    $'arg\t2\tvalue\trequired\tvariadic=true'
     $'opt\toverwrite\tflag\tdescription=Replace all prior keys with the new set')
 }
 function ucr_env_set {
@@ -213,6 +213,8 @@ function ucr_env_set {
   if [[ -n "$ucr_opts[overwrite]" ]]; then
     method=POST
   fi
+
+  (( $# % 2 == 0 )) || { echo "Expected key/value pairs" >&2; return 2; }
 
   # build values req
   local req=$(jq -n -c 'def nwise($n): while(.!=[]; .[$n:])[:$n]; . + ([$ARGS.positional|nwise(2)|{"key":.[0],"value":.[1]}]|from_entries)' --args -- "${@}")

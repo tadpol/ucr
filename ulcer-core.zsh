@@ -59,7 +59,7 @@ load_from_ini "$config_location" default false
 load_config .env
 
 # Parsed options are saved here for everyone to look at
-typeset -A ucr_opts
+typeset -A ucr_opts ucr_bare_opts
 
 # Load any options set as ENV variables
 # These are ENV variables named like <TOOL>_OPTION_<optionname>
@@ -70,6 +70,7 @@ function load_option_envs {
     if [[ "$key" =~ "^${prefix}(.+)" ]]; then
       local opt=${(L)match[1]}
       typeset -g ucr_opts[$opt]=${(P)key}
+      unset "ucr_bare_opts[$opt]"
     fi
   done
 }
@@ -108,7 +109,7 @@ function ucr_validate_specs {
         [[ ${attr%%=*} == alias && -v ucr_opts[${attr#*=}] ]] && optkey=${attr#*=}
       done
       [[ -v ucr_opts[$optkey] ]] || continue
-      if [[ $kind == value && ${ucr_opts[$optkey]} == true ]]; then
+      if [[ $kind == value && -v ucr_bare_opts[$optkey] ]]; then
         echo "Option --$name requires a value" >&2; return 2
       fi
       for attr in ${fields[4,-1]}; do
@@ -125,6 +126,7 @@ function ucr_validate_specs {
       fi
       for attr in ${fields[5,-1]}; do
         [[ ${attr%%=*} == passthrough && ${attr#*=} == true ]] && passthrough=true
+        [[ ${attr%%=*} == variadic && ${attr#*=} == true ]] && variadic=true
       done
     fi
   done
@@ -152,6 +154,7 @@ function task_runner {
     elif [[ "$arg" =~ "^--sec=(.*)$" ]]; then
       # Handle --sec as it appears; this allows the keys it sets to be overridden by following args
       ucr_opts[sec]=${match[1]}
+      unset 'ucr_bare_opts[sec]'
       local cfg=${ucr_opts[cfg]:-$config_location}
       load_from_ini "$cfg" "${ucr_opts[sec]}"
     elif [[ "$arg" =~ "^--help$" ]]; then
@@ -165,16 +168,20 @@ function task_runner {
       local opt=${arg#--}
       if [[ "$opt" =~ "^([^=]+)=(.*)" ]]; then
         ucr_opts[${match[1]}]=${match[2]}
+        unset "ucr_bare_opts[${match[1]}]"
         # ??? change multiple longs to append/group instead of overwrite?
       elif [[ "$opt" =~ "^no-" ]]; then
         ucr_opts[${opt#no-}]=false
+        unset "ucr_bare_opts[${opt#no-}]"
       else
         ucr_opts[$opt]=true
+        ucr_bare_opts[$opt]=true
       fi
     elif [[ "$arg" =~ "^-" ]]; then
       # short option
       local opt=${arg#-}
       for so in ${(s::)opt}; do
+        unset "ucr_bare_opts[$so]"
         if [[ -z "$ucr_opts[$so]" ]]; then
           ucr_opts[$so]=1
         else

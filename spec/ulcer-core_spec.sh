@@ -301,6 +301,12 @@ EOF
       The output should equal '1'
     End
 
+    It 'accepts true as an explicit value for a value option'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- "$ucr_opts[enabled]" }; function fixture_spec_echo { reply=($'"'"'opt\tenabled\tvalue'"'"'); }; task_runner echo --enabled=true' zsh "$CORE"
+      The status should equal 0
+      The output should equal 'true'
+    End
+
     It 'validates task option values from their specification'
       When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- ran }; function fixture_spec_echo { reply=($'"'"'opt\tmode\tvalue\tenum=fast,slow'"'"'); }; task_runner echo --mode=invalid' zsh "$CORE"
       The status should equal 2

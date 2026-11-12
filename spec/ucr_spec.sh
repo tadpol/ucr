@@ -110,6 +110,9 @@ End
 Describe 'ucr event handler tasks'
   UCR="$PWD/ucr"
 
+  BeforeEach 'tmp=$(mktemp -d); printf "return 1\\nreturn 2\\n" >"$tmp/script.lua"'
+  AfterEach 'rm -rf "$tmp"'
+
   It 'creates an event handler with a JSON request body'
     When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev create --name=alarm --service=weather --event=on_start --script='return 1' --debug --curl --dry
     The status should be success
@@ -121,6 +124,24 @@ Describe 'ucr event handler tasks'
     The stderr should include '"service":"weather"'
     The stderr should include '"event":"on_start"'
     The stderr should include '"script":"return 1"'
+  End
+
+  It 'preserves newlines in an inline script'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev create --script=$'return 1\\nreturn 2' --debug --curl --dry
+    The status should be success
+    The stderr should include '"script":"return 1\nreturn 2"'
+  End
+
+  It 'reads the create script from a file, including its trailing newline'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev create --script-file="$tmp/script.lua" --debug --curl --dry
+    The status should be success
+    The stderr should include '"script":"return 1\nreturn 2\n"'
+  End
+
+  It 'reads the update script from a file'
+    When call env UCR_API_URL=https://example.com UCR_SID=test zsh "$UCR" ev update ev-123 --script-file="$tmp/script.lua" --debug --curl --dry
+    The status should be success
+    The stderr should include '"script":"return 1\nreturn 2\n"'
   End
 
   It 'accepts wildcard event and script-key patterns without a service'

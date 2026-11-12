@@ -435,6 +435,31 @@ function ucr_ev_validate_patterns {
   fi
 }
 
+function ucr_ev_load_script {
+  if [[ -v ucr_opts[script-file] ]]; then
+    [[ ! -v ucr_opts[script] ]] || {
+      echo "Options --script and --script-file cannot be used together" >&2
+      exit 3
+    }
+    local script_file=${ucr_opts[script-file]}
+    [[ -n $script_file && -f $script_file && -r $script_file ]] || {
+      echo "Option --script-file must name a readable file: $script_file" >&2
+      exit 3
+    }
+    local script_content
+    script_content=$(cat -- "$script_file" && printf .) || {
+      echo "Could not read script file: $script_file" >&2
+      exit 3
+    }
+    ucr_opts[script]=${script_content%.}
+  fi
+
+  (( ${#ucr_opts[script]} <= 1000000 )) || {
+    echo "Option: 'script' exceeds maximum length of 1000000" >&2
+    exit 3
+  }
+}
+
 function ucr_help_ev_list {
   cat <<EOF
 ucr ev list
@@ -461,7 +486,7 @@ function ucr_ev_list {
 
 function ucr_help_ev_create {
   cat <<EOF
-ucr ev create [--name=<name>] [--service=<service>] [--script_key=<key>] [--event=<event>] [--script=<lua>] [--workset=<json>]
+ucr ev create [--name=<name>] [--service=<service>] [--script_key=<key>] [--event=<event>] [--script=<lua>|--script-file=<path>] [--workset=<json>]
   Create an event handler for the current solution.
 
   The solution_id is taken from UCR_SID. Supply --service or --script_key;
@@ -473,6 +498,7 @@ ucr ev create [--name=<name>] [--service=<service>] [--script_key=<key>] [--even
     --script_key=<key>      Script key (2-63 alphanumeric characters, not starting with a digit); patterns '*' and 'P/*' are allowed if --service is omitted
     --event=<event>         Event name (2-50 characters; starts with a letter, then letters, digits, or underscores; '*' matches any event)
     --script=<lua>          Lua script (up to 1,000,000 characters)
+    --script-file=<path>    Read the Lua script from a file (up to 1,000,000 characters)
     --workset=<json>        JSON array of data-flow worksets to follow
     --debug                 Print the generated request details to stderr
 EOF
@@ -483,17 +509,14 @@ function ucr_spec_ev_create {
     $'opt\tscript_key\tvalue\tcompletion=freeform\tdescription=Script key; 2-63 alphanumeric characters, or * or P/* without service\tregex=^(\\*|P/\\*|[a-zA-Z][a-zA-Z0-9]{1,62})$'
     $'opt\tevent\tvalue\tcompletion=freeform\tdescription=Event name; starts with a letter and is 2-50 characters, or * for any event\tregex=^(\\*|[a-zA-Z][a-zA-Z0-9_]{1,49})$'
     $'opt\tscript\tvalue\tcompletion=freeform\tdescription=User-defined Lua script, up to 1,000,000 characters'
+    $'opt\tscript-file\tvalue\tcompletion=freeform\tdescription=Path to a Lua script file, up to 1,000,000 characters'
     $'opt\tworkset\tvalue\tcompletion=freeform\tdescription=JSON array of data-flow worksets to follow'
     $'opt\tdebug\tflag\tdescription=Print generated request details to stderr')
 }
 function ucr_ev_create {
   want_envs UCR_API_URL "$ucr_api_url_pattern" UCR_SID "^[a-zA-Z0-9]+$"
   ucr_ev_validate_patterns
-
-  (( ${#ucr_opts[script]} <= 1000000 )) || {
-    echo "Option: 'script' exceeds maximum length of 1000000" >&2
-    exit 3
-  }
+  ucr_ev_load_script
 
   local create_opts=$(
     options_to_json \
@@ -504,11 +527,11 @@ function ucr_ev_create {
       script::string '(?s).*' \
       workset::json '(?s).*'
   )
-  [[ -z "${ucr_opts[debug]}" ]] || echo ": $create_opts" >&2
+  [[ -z "${ucr_opts[debug]}" ]] || print -r -- ": $create_opts" >&2
 
   # Build the request body
   local req=$(jq -c '. + { "solution_id": $ENV.UCR_SID }' <<<"$create_opts")
-  [[ -z "${ucr_opts[debug]}" ]] || echo "Req: $req" >&2
+  [[ -z "${ucr_opts[debug]}" ]] || print -r -- "Req: $req" >&2
 
   v_curl -s ${UCR_API_URL}/eventhandler \
     -H 'Content-Type: application/json' \
@@ -518,7 +541,7 @@ function ucr_ev_create {
 
 function ucr_help_ev_update {
   cat <<EOF
-ucr ev update <event handler id> [--name=<name>] [--service=<service>] [--script_key=<key>] [--event=<event>] [--script=<lua>] [--workset=<json>]
+ucr ev update <event handler id> [--name=<name>] [--service=<service>] [--script_key=<key>] [--event=<event>] [--script=<lua>|--script-file=<path>] [--workset=<json>]
   Update the supplied fields of an event handler for the current solution.
 
   The event handler id is a UUID, full alias (<solution_id>_<service>_<event>),
@@ -531,6 +554,7 @@ ucr ev update <event handler id> [--name=<name>] [--service=<service>] [--script
     --script_key=<key>      Script key (2-63 alphanumeric characters, not starting with a digit); patterns '*' and 'P/*' are allowed if --service is omitted
     --event=<event>         Event name (2-50 characters; starts with a letter, then letters, digits, or underscores; '*' matches any event)
     --script=<lua>          Lua script (up to 1,000,000 characters)
+    --script-file=<path>    Read the Lua script from a file (up to 1,000,000 characters)
     --workset=<json>        JSON array of data-flow worksets to follow
     --debug                 Print the generated request details to stderr
 EOF
@@ -542,6 +566,7 @@ function ucr_spec_ev_update {
     $'opt\tscript_key\tvalue\tcompletion=freeform\tdescription=Script key; 2-63 alphanumeric characters, or * or P/* without service\tregex=^(\\*|P/\\*|[a-zA-Z][a-zA-Z0-9]{1,62})$'
     $'opt\tevent\tvalue\tcompletion=freeform\tdescription=Event name; starts with a letter and is 2-50 characters, or * for any event\tregex=^(\\*|[a-zA-Z][a-zA-Z0-9_]{1,49})$'
     $'opt\tscript\tvalue\tcompletion=freeform\tdescription=User-defined Lua script, up to 1,000,000 characters'
+    $'opt\tscript-file\tvalue\tcompletion=freeform\tdescription=Path to a Lua script file, up to 1,000,000 characters'
     $'opt\tworkset\tvalue\tcompletion=freeform\tdescription=JSON array of data-flow worksets to follow'
     $'opt\tdebug\tflag\tdescription=Print generated request details to stderr')
 }
@@ -550,11 +575,7 @@ function ucr_ev_update {
   local ev_id=${1:?Need event handler id}
   ev_id=$(ucr_ev_resolve_id "$ev_id")
   ucr_ev_validate_patterns
-
-  (( ${#ucr_opts[script]} <= 1000000 )) || {
-    echo "Option: 'script' exceeds maximum length of 1000000" >&2
-    exit 3
-  }
+  ucr_ev_load_script
 
   local update_req=$(
     options_to_json \
@@ -565,7 +586,7 @@ function ucr_ev_update {
       script::string '(?s).*' \
       workset::json '(?s).*'
   )
-  [[ -z "${ucr_opts[debug]}" ]] || echo ": $update_req" >&2
+  [[ -z "${ucr_opts[debug]}" ]] || print -r -- ": $update_req" >&2
 
   v_curl -s "${UCR_API_URL}/eventhandler/${ev_id}" \
     -H 'Content-Type: application/json' \

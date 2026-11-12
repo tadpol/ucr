@@ -274,6 +274,11 @@ EOF
       The output should equal 'deep:one two'
     End
 
+    It 'parses and serializes multiline long-option values'
+      When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { options_to_json script::string "(?s).*" }; task_runner echo "$2"' zsh "$CORE" $'--script=first\nsecond'
+      The output should equal '{"script":"first\nsecond"}'
+    End
+
     It 'parses boolean, grouped short, env, and passthrough arguments'
       When call zsh -f -c 'argv0=fixture; source "$1"; function fixture_help_echo { : }; function fixture_echo { print -r -- "$*|$ucr_opts[dry]|$ucr_opts[v]|$FIXTURE_KEY" }; task_runner -vv --dry KEY=value echo -- trailing' zsh "$CORE"
       The output should equal 'trailing|true|2|value'

@@ -166,9 +166,10 @@ function task_runner {
     elif [[ "$arg" =~ "^--" ]]; then
       # long option
       local opt=${arg#--}
-      if [[ "$opt" =~ "^([^=]+)=(.*)" ]]; then
-        ucr_opts[${match[1]}]=${match[2]}
-        unset "ucr_bare_opts[${match[1]}]"
+      if [[ "$opt" == *"="* && "$opt" != "="* ]]; then
+        local opt_name=${opt%%=*}
+        ucr_opts[$opt_name]=${opt#*=}
+        unset "ucr_bare_opts[$opt_name]"
         # ??? change multiple longs to append/group instead of overwrite?
       elif [[ "$opt" =~ "^no-" ]]; then
         ucr_opts[${opt#no-}]=false
@@ -326,7 +327,7 @@ function options_to_json {
       fi
     fi
   done
-  echo "{ ${(j:, :)build_req} }" | jq -c
+  print -r -- "{ ${(j:, :)build_req} }" | jq -c
 }
 
 # Above is functions and such to be the core.

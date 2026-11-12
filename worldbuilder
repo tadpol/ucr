@@ -21,6 +21,12 @@ fi
 function _verbose {
   [[ -n "${ucr_opts[v]}" || "${ucr_opts[verbose]}" ]] && echo ": $@" >&2
 }
+function _info {
+  [[ -z "${ucr_opts[q]}" && -z "${ucr_opts[quiet]}" ]] && echo "I: $@" >&2
+}
+function _warning {
+  echo "W! $@" >&2
+}
 function _debug {
   [[ "${ucr_opts[debug]}" ]] && echo "d: $@" >&2
 }
@@ -157,8 +163,10 @@ function worldbuilder_example {
 [name-of-thing]
 # The name of the section is up to you, but should be unique.
 
-# These keys are required in each section:
+# repo is only required by clone; other tasks use an existing checkout.
 repo=git repo url (ssh or https)
+# In TOML, repo can instead map remote names to URLs; it must include origin:
+# repo = { origin = "git@example.com:thing.git", upstream = "git@example.com:upstream.git" }
 commit=branch_to_checkout
 # commit can be a branch, tag, commit hash or empty for HEAD.
 dir=relative/directory/path/to/thing
@@ -245,16 +253,76 @@ EOF
 function worldbuilder_spec_clone {
   reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections')
 }
+function _worldbuilder_repo_remotes {
+  local file=${1:?Need config file}
+  local section=${2:?Need section}
+  local format=${file:e:l}
+  local repo_type
+
+  case "$format" in
+    ini|toml) ;;
+    *) _error "Unsupported worldbuilder config format: .$format"; return 2 ;;
+  esac
+
+  repo_type=$(WB_SCOPE=$section yq -p "$format" -o yaml -r '.[strenv(WB_SCOPE)].repo | tag' "$file") || {
+    _error "Missing worldbuilder key [$section].repo"
+    return 2
+  }
+  case "$repo_type" in
+    '!!str')
+      WB_SCOPE=$section yq -p "$format" -o yaml -r -0 -e \
+        '.[strenv(WB_SCOPE)].repo | select(length > 0) | ["origin", .] | .[]' "$file" || {
+        _error "Invalid repo for [$section]: expected a non-empty URL"
+        return 2
+      }
+      ;;
+    '!!map')
+      WB_SCOPE=$section yq -p "$format" -o yaml -r -e \
+        '.[strenv(WB_SCOPE)].repo | (has("origin") and ([to_entries[] | select((.value | tag) != "!!str" or (.value | length) == 0)] | length == 0))' \
+        "$file" >/dev/null 2>&1 || {
+        _error "Invalid repo map for [$section]: require origin and non-empty URL strings"
+        return 2
+      }
+      WB_SCOPE=$section yq -p "$format" -o yaml -r -0 \
+        '.[strenv(WB_SCOPE)].repo | ([["origin", .origin]] + [to_entries[] | select(.key != "origin") | [.key, .value]])[] | .[]' \
+        "$file"
+      ;;
+    *)
+      _error "Invalid repo for [$section]: expected a URL or remote map"
+      return 2
+      ;;
+  esac
+}
+
 function worldbuilder_clone {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
-  local dir repo
-  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir repo
-  want_envs dir "^.+$" repo "^.+$"
+  local dir tmp remote url i
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir
+  want_envs dir "^.+$"
+
+  tmp=$(mktemp "${TMPDIR:-/tmp}/worldbuilder.XXXXXX") || return 2
+  _worldbuilder_repo_remotes "$WORLDBUILDER_FILE" "$whom" >"$tmp" || {
+    local exit_code=$?
+    rm -f "$tmp"
+    return $exit_code
+  }
+  local remotes=()
+  while IFS= read -r -d '' remote && IFS= read -r -d '' url; do
+    remotes+=("$remote" "$url")
+  done <"$tmp"
+  rm -f "$tmp"
+  if (( ${#remotes} < 2 || ${#remotes} % 2 != 0 )) || [[ "${remotes[1]}" != origin ]]; then
+    _error "Invalid repo for [$whom]: expected origin and remote URLs"
+    return 2
+  fi
 
   if [[ ! -d "$dir" || -z "$(ls -A "$dir")" ]]; then
     mkdir -p "$dir"
-    git clone "$repo" "$dir"
+    git clone "${remotes[2]}" "$dir" || return $?
+    for (( i = 3; i <= ${#remotes}; i += 2 )); do
+      git -C "$dir" remote add "${remotes[i]}" "${remotes[i + 1]}" || return $?
+    done
   fi
 }
 
@@ -336,6 +404,70 @@ function worldbuilder_update {
     fi
   )
 }
+
+function worldbuilder_help_push {
+  cat <<EOF
+worldbuilder push <section> [--remote=<remote>] [--also] [<branch…>]
+  Pushes branches for the section to the specified remote.
+  If branch is omitted, pushes the current branch.
+  If --remote is omitted, pushes to origin.
+  If --also is specified, pushes a set of common branches in addition to the specified branch.
+  Pushes are all attempted; each failure is warned about, and any failure returns a non-zero status.
+  Common branches pushed if they exist: stable, develop, production, master, main
+EOF
+}
+function worldbuilder_spec_push {
+  reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections'
+         $'opt\tremote\tvalue\tdescription=Git remote name'
+         $'opt\talso\tflag\tdescription=Also push existing common branches'
+         $'arg\t2\tbranch\toptional\tcompletion=freeform\tvariadic=true')
+}
+function worldbuilder_push {
+  want_envs WORLDBUILDER_FILE "^.+$"
+  local whom=$(worldbuilder_namer "${1:?Need section to work on}")
+  shift
+
+  local dir remote=${ucr_opts[remote]:-origin} current_branch branch candidate duplicate checked_branch
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir
+  want_envs dir "^.+$"
+  [[ -d "$dir" ]] || { _error "Repository directory not found: $dir"; return 2; }
+
+  local branches=("$@")
+  if (( ${#branches} == 0 )); then
+    current_branch=$(cd "$dir" && git symbolic-ref --short -q HEAD) || current_branch=""
+    [[ -n "$current_branch" ]] || { _error "Cannot push current branch: HEAD is detached in $dir"; return 2; }
+    branches+=("$current_branch")
+  fi
+
+  if [[ "${ucr_opts[also]}" == true ]]; then
+    for candidate in stable develop production master main; do
+      git -C "$dir" show-ref --verify --quiet "refs/heads/$candidate" || continue
+      duplicate=false
+      for branch in "${branches[@]}"; do
+        [[ "$branch" == "$candidate" ]] && { duplicate=true; break; }
+      done
+      [[ "$duplicate" == true ]] || branches+=("$candidate")
+    done
+  fi
+
+  (
+    cd "$dir" || exit 2
+    local failed=0
+    for branch in "${branches[@]}"; do
+      checked_branch=$(git check-ref-format --branch "$branch" 2>/dev/null) || {
+        _warning "Failed to push invalid branch '$branch' to '$remote'"
+        failed=1
+        continue
+      }
+      if ! git push -- "$remote" "refs/heads/${checked_branch}:refs/heads/${checked_branch}"; then
+        _warning "Failed to push branch '$branch' to '$remote'"
+        failed=1
+      fi
+    done
+    return $failed
+  )
+}
+
 
 function worldbuilder_help_where {
   cat <<EOF
@@ -428,9 +560,9 @@ function worldbuilder_audit {
   want_envs WORLDBUILDER_FILE "^.+$"
   local whom=$(worldbuilder_namer ${1:?Need section to work on})
   shift
-  local dir image commit repo
-  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir image commit repo
-  want_envs dir "^.+$" image "^.+$" commit "^.*$" repo "^.+$"
+  local dir image commit
+  _worldbuilder_load "$WORLDBUILDER_FILE" "$whom" dir image commit
+  want_envs dir "^.+$" image "^.+$" commit "^.*$"
 
   local base=$PWD
   local imagesDir=_images_${${${WORLDBUILDER_FILE:t}#wb_}:r}
@@ -506,7 +638,7 @@ function worldbuilder_build {
   [[ -z "$type" ]] && type=docker
   [[ -z "$platform" ]] && platform=$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')
 
-  want_envs dir "^.+$" image "^.+$" type "^.+$" commit "^.*$" repo "^.+$"
+  want_envs dir "^.+$" image "^.+$" type "^.+$" commit "^.*$"
 
   local base=$PWD
   local imagesDir=_images_${${${WORLDBUILDER_FILE:t}#wb_}:r}

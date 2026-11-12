@@ -992,7 +992,7 @@ function jmq_summary {
 
   if [[ "$mode" == "pr" ]]; then
     local prompt='
-    Summarize the pull request.  The summary must be in pose and neutral tone.
+    Summarize the pull request.  The summary must be in prose and neutral tone.
     Do not include code snippets or psedo-code in the summary.
     The summary should be as breif as possible without loosing detail.
     '
@@ -1056,7 +1056,7 @@ EOF
 }
 function jmq_spec_release_set {
   reply=($'arg\t1\trelease\trequired'
-         $'arg\t2\ttickets\toptional')
+         $'arg\t2\ttickets\toptional\tvariadic=true')
 }
 function jmq_release_set {
   want_envs JMQ_HOST "^[\.A-Za-z0-9-]+$" JMQ_PROJECTS "^[A-Z]+(,[A-Z]+)*$"
@@ -1089,7 +1089,7 @@ function jmq_release_set {
 
 function jmq_help_release_ready {
   cat <<EOF
-jmq release-ready <release> [--model=<string>] [--debug] [--dry]
+jmq release ready <release> [--model=<string>] [--debug] [--dry]
   Check all of the tickets for a release to see if they are ready.
 
   --model=<string>   The model to use for the AI review. Default is set in `llm models default`
@@ -1120,7 +1120,19 @@ function jmq_release_ready {
 
   local jql="project in (${JMQ_PROJECTS}) AND fixVersion = \"${release}\""
   local req=$(jq -n -c --arg jql "$jql" '{"jql": $jql,
-    "fields": ["key", "summary", "description", "status", "customfield_12537", "assignee", "fixVersions", "labels"] }')
+    "fields": [
+      "key",
+      "summary",
+      "description",
+      "status",
+      "customfield_12537",
+      "customfield_12536",
+      "assignee",
+      "fixVersions",
+      "labels"
+    ] }')
+  # customfield_12537 is the validation notes field
+  # customfield_12536 is the component field
   local data=$(v_curl -s https://${JMQ_HOST}/rest/api/3/search/jql \
     -H 'Content-Type: application/json' \
     --variable %JMQ_USER --variable %JMQ_PASSWORD --expand-user '{{JMQ_USER}}:{{JMQ_PASSWORD}}' \
@@ -1130,12 +1142,15 @@ function jmq_release_ready {
 
   [[ -z "${ucr_opts[stop]}" ]] || exit 0
 
+  # Now run the AI review to check if all tickets are ready for release
   local prompt='
-    You are a QA engineer with a keen eye for detail.  You are reviewing tickets for a release to see if they are ready.
+    You are a QA engineer with a keen eye for detail. You are reviewing tickets for a release to see
+    if they are ready.
 
-    A ticket is ready when it is in the "Regression Testing" status, and
-    the Validation Notes (customfield_12537) are filled out.  Specifically, the Validation notes must
-    contain three sections, what was done, how to test, and implementation details.
+    A ticket is ready when it is in the "Regression Testing" status, the Component
+    (customfield_12536) is defined, and the Validation Notes (customfield_12537) are filled out.
+    Specifically, the Validation notes must contain three sections, what was done, how to test, and
+    implementation details.
 
     The section for what was done must descibe work related to the description.  It can be empty only
     if the label FVT_NONEED is present.

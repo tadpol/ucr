@@ -700,25 +700,36 @@ function jmq_work {
 
 function jmq_help_prc {
   cat <<EOF
-jmq prc [<key>] [<merge to branch>]
+jmq prc [--body=<file>] [<key>] [<merge to branch>]
   Create a PR for the current branch into stable or the given branch.
   If key is not given, derive it from the branch name, then move the ticket to "Validate".
+  By default the PR body is empty, but if --body is given, then the contents of the file are used as the PR body.
 EOF
 }
 function jmq_spec_prc {
   reply=($'arg\t1\tkey\toptional'
-         $'arg\t2\tbranch\toptional')
+         $'arg\t2\tbranch\toptional'
+         $'opt\tbody\tvalue\tdescription=File containing the PR body')
 }
 function jmq_prc {
   # prc [<key>] [<merge to branch>]
   local key=${${1:-$(jmq_branch)}:?Missing Issue Key}
   local into=${2:-stable}
+  local body=""
+  if [[ -v ucr_opts[body] ]]; then
+    [[ -n ${ucr_opts[body]} && -r ${ucr_opts[body]} ]] || {
+      echo "Cannot read PR body file: ${ucr_opts[body]}" >&2
+      return 2
+    }
+    body=$(cat < "${ucr_opts[body]}" && printf '.') || return 2
+    body=${body%.}
+  fi
   local msg=$(jmq_pr $key || git log --oneline -1 --no-decorate)
 
   gh pr create \
-    -B $into \
+    -B "$into" \
     -t "$msg" \
-    -b "" \
+    -b "$body" \
     -a tadpol -d
 
   [[ -n "$key" ]] && jmq_move $key Validate

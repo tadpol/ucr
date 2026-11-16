@@ -409,11 +409,13 @@ worldbuilder update <section> [options] [commit]
   Fast-forwards local branches without switching HEAD if possible, or stashes and switches if needed.
 
   Options:
-    -f, --force    Force overwrite local branch to match remote (useful when upstream rebased)
+    --remote=<remote>  Fetch and update from this remote; add it from repo if missing
+    -f, --force        Force overwrite local branch to match remote (useful when upstream rebased)
 EOF
 }
 function worldbuilder_spec_update {
   reply=($'arg\t1\tsection\trequired\tcompletion=worldbuilder sections'
+         $'opt\tremote\tvalue\tdescription=Git remote name'
          $'opt\tforce\tflag\tdescription=Force overwrite local branch to match remote'
          $'opt\tf\tflag\tdescription=Force overwrite local branch to match remote (alias)'
          $'arg\t2\tcommit\toptional\tcompletion=freeform')
@@ -426,54 +428,107 @@ function worldbuilder_update {
   want_envs dir "^.+$" commit "^.*$"
   [[ $# -gt 1 ]] && commit=${2:-$commit}
 
-  local force=false
+  local force=false config_file=${WORLDBUILDER_FILE:A}
   [[ -n "${ucr_opts[force]}" || -n "${ucr_opts[f]}" ]] && force=true
 
   (
-    cd ${dir}
-    git fetch --all --prune
+    cd "$dir" || return 2
+    local remote=${ucr_opts[remote]} explicit_remote=false
+    if [[ -v 'ucr_opts[remote]' ]]; then
+      explicit_remote=true
+      [[ -n "$remote" ]] || { _error "Remote name cannot be empty"; return 2; }
+      if ! git remote get-url -- "$remote" >/dev/null 2>&1; then
+        local tmp name url found=false
+        tmp=$(mktemp "${TMPDIR:-/tmp}/worldbuilder.XXXXXX") || return 2
+        _worldbuilder_repo_remotes "$config_file" "$whom" >"$tmp" || {
+          local exit_code=$?
+          rm -f "$tmp"
+          return $exit_code
+        }
+        while IFS= read -r -d '' name && IFS= read -r -d '' url; do
+          if [[ "$name" == "$remote" ]]; then
+            found=true
+            break
+          fi
+        done <"$tmp"
+        rm -f "$tmp"
+        [[ "$found" == true ]] || { _error "Remote '$remote' not found in [$whom].repo"; return 2; }
+        git remote add -- "$remote" "$url" || return $?
+      fi
+      git fetch --prune -- "$remote" || return $?
+    else
+      git fetch --all --prune
+    fi
 
     [[ -z "$commit" ]] && return 0
 
     local current_branch=$(git symbolic-ref --short -q HEAD 2>/dev/null)
-    local remote=$(git config "branch.${commit}.remote" 2>/dev/null)
-    [[ -z "$remote" ]] && remote=origin
+    if [[ "$explicit_remote" == false ]]; then
+      remote=$(git config "branch.${commit}.remote" 2>/dev/null)
+      [[ -z "$remote" ]] && remote=origin
+    fi
 
     if [[ "$current_branch" == "$commit" ]]; then
       if [[ "$force" == "true" ]]; then
         git reset --hard "$remote/$commit"
       else
-        local needs_stash=""
+        local needs_stash="" update_status=0
         needs_stash="$(git status --untracked-files=no --porcelain)"
-        [[ -n "$needs_stash" ]] && git stash
+        if [[ -n "$needs_stash" ]]; then
+          git stash || return $?
+        fi
 
-        git pull
+        if [[ "$explicit_remote" == true ]]; then
+          git pull -- "$remote" "$commit" || update_status=$?
+        else
+          git pull || update_status=$?
+        fi
 
-        [[ -n "$needs_stash" ]] && git stash pop
+        if [[ -n "$needs_stash" ]]; then
+          git stash pop || return $?
+        fi
+        return $update_status
       fi
     else
       local refspec="${commit}:${commit}"
       [[ "$force" == "true" ]] && refspec="+${refspec}"
 
       # Try updating local branch directly without checkout
-      if ! git fetch "$remote" "$refspec" 2>/dev/null; then
+      if git fetch -- "$remote" "$refspec" 2>/dev/null; then
+        return 0
+      else
+        local fetch_status=$?
         # Fallback to checkout + pull/reset if direct update fails
         local heads=($(git for-each-ref --format='%(refname:short)' refs/heads/))
         if [[ " ${heads[@]} " =~ " ${commit} " ]]; then
           local remember="$current_branch"
-          local needs_stash=""
+          local needs_stash="" update_status=0
           needs_stash="$(git status --untracked-files=no --porcelain)"
-          [[ -n "$needs_stash" ]] && git stash
-
-          git checkout "${commit}"
-          if [[ "$force" == "true" ]]; then
-            git reset --hard "$remote/$commit"
-          else
-            git pull
+          if [[ -n "$needs_stash" ]]; then
+            git stash || return $?
           fi
 
-          [[ -n "$remember" ]] && git checkout "${remember}"
-          [[ -n "$needs_stash" ]] && git stash pop
+          if git checkout "${commit}"; then
+            if [[ "$force" == "true" ]]; then
+              git reset --hard "$remote/$commit" || update_status=$?
+            elif [[ "$explicit_remote" == true ]]; then
+              git pull -- "$remote" "$commit" || update_status=$?
+            else
+              git pull || update_status=$?
+            fi
+            if [[ -n "$remember" ]]; then
+              git checkout "${remember}" || return $?
+            fi
+          else
+            update_status=$?
+          fi
+          if [[ -n "$needs_stash" ]]; then
+            git stash pop || return $?
+          fi
+          return $update_status
+        elif [[ "$explicit_remote" == true ]]; then
+          _error "Failed to update '$commit' from '$remote'"
+          return $fetch_status
         fi
       fi
     fi

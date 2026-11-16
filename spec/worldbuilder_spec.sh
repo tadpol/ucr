@@ -232,6 +232,186 @@ EOF
   End
 End
 
+Describe 'worldbuilder update --remote'
+  WB="$PWD/worldbuilder"
+
+  BeforeEach 'setup_update_repos'
+  AfterEach 'rm -rf "$tmp"'
+
+  setup_update_repos() {
+    tmp=$(mktemp -d)
+    mkdir -p "$tmp/bin" "$tmp/home"
+    cat >"$tmp/bin/fzf" <<'EOF'
+#!/bin/sh
+cat
+EOF
+    chmod +x "$tmp/bin/fzf"
+    export HOME="$tmp/home" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+
+    git init -q --bare "$tmp/origin.git"
+    git init -q --bare "$tmp/upstream.git"
+    git init -q -b main "$tmp/seed"
+    git -C "$tmp/seed" config user.name 'Worldbuilder test'
+    git -C "$tmp/seed" config user.email 'test@example.test'
+    printf 'base\n' >"$tmp/seed/tracked"
+    git -C "$tmp/seed" add tracked
+    git -C "$tmp/seed" commit -q -m base
+    base=$(git -C "$tmp/seed" rev-parse HEAD)
+    git -C "$tmp/seed" remote add origin "$tmp/origin.git"
+    git -C "$tmp/seed" remote add upstream "$tmp/upstream.git"
+    git -C "$tmp/seed" push -q origin main
+    git -C "$tmp/seed" push -q upstream main
+    git -C "$tmp/origin.git" symbolic-ref HEAD refs/heads/main
+    git clone -q "$tmp/origin.git" "$tmp/checkout"
+    git -C "$tmp/checkout" config user.name 'Worldbuilder test'
+    git -C "$tmp/checkout" config user.email 'test@example.test'
+    git -C "$tmp/checkout" remote add upstream "$tmp/upstream.git"
+
+    git -C "$tmp/seed" commit -q --allow-empty -m origin
+    git -C "$tmp/seed" push -q origin main
+    git -C "$tmp/seed" reset -q --hard "$base"
+    git -C "$tmp/seed" commit -q --allow-empty -m upstream
+    upstream_tip=$(git -C "$tmp/seed" rev-parse HEAD)
+    git -C "$tmp/seed" push -q upstream main
+    write_update_config "$tmp/upstream.git"
+  }
+
+  write_update_config() {
+    cat >"$tmp/wb.toml" <<EOF
+[demo]
+repo = { origin = "$tmp/origin.git", upstream = "$1" }
+dir = "$tmp/checkout"
+commit = "main"
+EOF
+  }
+
+  run_update() {
+    env WORLDBUILDER_FILE="$tmp/wb.toml" PATH="$tmp/bin:$PATH" zsh -f "$WB" update demo "$@"
+  }
+
+  branch_tip() { git -C "$tmp/checkout" rev-parse refs/heads/main; }
+  current_branch() { git -C "$tmp/checkout" branch --show-current; }
+  tracking_remote() { git -C "$tmp/checkout" config branch.main.remote; }
+  upstream_url() { git -C "$tmp/checkout" remote get-url upstream 2>/dev/null; }
+  upstream_tracking_tip() { git -C "$tmp/checkout" rev-parse refs/remotes/upstream/main; }
+  remote_names() { git -C "$tmp/checkout" remote; }
+
+  It 'updates the checked-out branch from the selected remote instead of its configured upstream'
+    When call run_update --remote=upstream
+    The status should be success
+    The result of function branch_tip should equal "$upstream_tip"
+    The result of function current_branch should equal 'main'
+    The result of function tracking_remote should equal 'origin'
+  End
+
+  It 'adds a missing selected remote from the section repo map'
+    git -C "$tmp/checkout" remote remove upstream
+    When call run_update --remote=upstream
+    The status should be success
+    The result of function upstream_url should equal "$tmp/upstream.git"
+    The result of function branch_tip should equal "$upstream_tip"
+    The result of function tracking_remote should equal 'origin'
+  End
+
+  It 'finds a missing remote when the config path is relative'
+    git -C "$tmp/checkout" remote remove upstream
+    When call env WORLDBUILDER_FILE=wb.toml PATH="$tmp/bin:$PATH" zsh -f -c 'cd "$1" && exec zsh -f "$2" update demo --remote=upstream' zsh "$tmp" "$WB"
+    The status should be success
+    The result of function upstream_url should equal "$tmp/upstream.git"
+    The result of function branch_tip should equal "$upstream_tip"
+  End
+
+  It 'adds and fetches the selected remote when no commit is configured'
+    git -C "$tmp/checkout" remote remove upstream
+    cat >"$tmp/wb.toml" <<EOF
+[demo]
+repo = { origin = "$tmp/origin.git", upstream = "$tmp/upstream.git" }
+dir = "$tmp/checkout"
+commit = ""
+EOF
+    When call run_update --remote=upstream
+    The status should be success
+    The result of function upstream_url should equal "$tmp/upstream.git"
+    The result of function branch_tip should equal "$base"
+    The result of function upstream_tracking_tip should equal "$upstream_tip"
+  End
+
+  It 'adds origin from a string repo in an INI file'
+    git -C "$tmp/checkout" remote remove origin
+    cat >"$tmp/wb.ini" <<EOF
+[demo]
+repo=$tmp/origin.git
+dir=$tmp/checkout
+commit=
+EOF
+    When call env WORLDBUILDER_FILE="$tmp/wb.ini" PATH="$tmp/bin:$PATH" zsh -f "$WB" update demo --remote=origin
+    The status should be success
+    The result of function remote_names should include 'origin'
+    The result of function branch_tip should equal "$base"
+  End
+
+  It 'fails for a missing remote not in the repo map without moving the branch'
+    When call run_update --remote=missing
+    The status should be failure
+    The stderr should include 'missing'
+    The result of function branch_tip should equal "$base"
+    The result of function remote_names should not include 'missing'
+  End
+
+  It 'fails without updating the branch when fetching the selected remote fails'
+    git -C "$tmp/checkout" remote set-url upstream "$tmp/not-a-repo"
+    When call run_update --remote=upstream
+    The status should be failure
+    The result of function branch_tip should equal "$base"
+  End
+
+  It 'uses an existing remote without replacing its URL from the repo map'
+    write_update_config "$tmp/origin.git"
+    When call run_update --remote=upstream
+    The status should be success
+    The result of function upstream_url should equal "$tmp/upstream.git"
+    The result of function branch_tip should equal "$upstream_tip"
+  End
+
+  It 'updates an off-branch target from the selected remote without switching branches'
+    git -C "$tmp/checkout" checkout -q -b other
+    When call run_update --remote=upstream
+    The status should be success
+    The result of function branch_tip should equal "$upstream_tip"
+    The result of function current_branch should equal 'other'
+    The result of function tracking_remote should equal 'origin'
+  End
+
+  It 'forces a divergent checked-out branch to the selected remote'
+    git -C "$tmp/checkout" commit -q --allow-empty -m local
+    When call run_update --remote=upstream --force
+    The status should be success
+    The result of function branch_tip should equal "$upstream_tip"
+    The result of function tracking_remote should equal 'origin'
+  End
+
+  It 'reports a failed pull and restores stashed local changes'
+    git -C "$tmp/checkout" commit -q --allow-empty -m local
+    git -C "$tmp/checkout" config pull.ff only
+    local_tip=$(git -C "$tmp/checkout" rev-parse HEAD)
+    printf 'local change\n' >"$tmp/checkout/tracked"
+    When call run_update --remote=upstream
+    The status should be failure
+    The result of function branch_tip should equal "$local_tip"
+    The contents of file "$tmp/checkout/tracked" should equal 'local change'
+  End
+
+  It 'still updates from the configured upstream and restores local changes when no remote is selected'
+    git -C "$tmp/checkout" config branch.main.remote upstream
+    printf 'local change\n' >"$tmp/checkout/tracked"
+    When call run_update
+    The status should be success
+    The result of function branch_tip should equal "$upstream_tip"
+    The result of function tracking_remote should equal 'upstream'
+    The contents of file "$tmp/checkout/tracked" should equal 'local change'
+  End
+End
+
 Describe 'worldbuilder build'
   WB="$PWD/worldbuilder"
 

@@ -211,35 +211,110 @@ EOE
 function worldbuilder_help_doctor {
   cat <<EOF
 worldbuilder doctor
-  Checks the current environment for required tools and dependencies.
+  Checks tools, configuration, and local checkouts without changing them.
+  Missing checkouts and remote differences are warnings; no network access is used.
 EOF
 }
 function worldbuilder_doctor {
   local docker_tool=${WORLDBUILDER_DOCKER_TOOL:-docker}
-  local missing=()
+  local missing=() tool format tmp section key dir remote url actual
+  local failed=0 warnings=0
 
-  # Check for required tools
   for tool in git yq mlr fzf trivy $docker_tool; do
-    if ! command -v $tool >/dev/null 2>&1; then
+    if ! command -v "$tool" >/dev/null 2>&1; then
       missing+=("$tool")
     fi
   done
-
   if (( ${#missing[@]} > 0 )); then
     _error "Missing required tools: ${missing[*]}"
-    return 1
+    failed=1
   fi
 
-  # Check for WORLDBUILDER_FILE
   if [[ -z "$WORLDBUILDER_FILE" ]]; then
     _error "WORLDBUILDER_FILE is not set. Please set it to your worldbuilder config file."
     return 1
-  elif [[ ! -f "$WORLDBUILDER_FILE" ]]; then
-    _error "WORLDBUILDER_FILE ($WORLDBUILDER_FILE) does not exist."
+  elif [[ ! -f "$WORLDBUILDER_FILE" || ! -r "$WORLDBUILDER_FILE" ]]; then
+    _error "Worldbuilder config not found or unreadable: $WORLDBUILDER_FILE"
+    return 1
+  fi
+  format=${WORLDBUILDER_FILE:e:l}
+  case "$format" in
+    ini|toml) ;;
+    *) _error "Unsupported worldbuilder config format: .$format"; return 1 ;;
+  esac
+  command -v yq >/dev/null 2>&1 || return 1
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/worldbuilder.XXXXXX") || return 1
+  if ! yq -p "$format" -o yaml -e '(tag) == "!!map"' "$WORLDBUILDER_FILE" >/dev/null ||
+     ! yq -p "$format" -o yaml -r -0 'keys[]' "$WORLDBUILDER_FILE" >"$tmp/sections"; then
+    _error "Invalid worldbuilder config: $WORLDBUILDER_FILE"
+    rm -rf "$tmp"
     return 1
   fi
 
-  echo "Environment looks good."
+  while IFS= read -r -d '' section; do
+    if ! WB_SCOPE=$section yq -p "$format" -o yaml -e '.[strenv(WB_SCOPE)] | ((tag) == "!!map")' "$WORLDBUILDER_FILE" >/dev/null 2>&1; then
+      _error "Invalid worldbuilder section [$section]: expected a map"
+      failed=1
+      continue
+    fi
+    WB_SCOPE=$section yq -p "$format" -o yaml -r -0 '.[strenv(WB_SCOPE)] | keys[]' "$WORLDBUILDER_FILE" >"$tmp/keys"
+    while IFS= read -r -d '' key; do
+      if [[ ! "$key" =~ '^[a-zA-Z_][a-zA-Z0-9_]*$' ]]; then
+        _error "Invalid worldbuilder key [$section].$key"
+        failed=1
+      fi
+    done <"$tmp/keys"
+
+    if WB_SCOPE=$section yq -p "$format" -o yaml -e '.[strenv(WB_SCOPE)] | has("repo")' "$WORLDBUILDER_FILE" >/dev/null 2>&1; then
+      if ! _worldbuilder_repo_remotes "$WORLDBUILDER_FILE" "$section" >"$tmp/remotes"; then
+        failed=1
+        : >"$tmp/remotes"
+      fi
+    else
+      : >"$tmp/remotes"
+    fi
+
+    if ! WB_SCOPE=$section yq -p "$format" -o yaml -e '.[strenv(WB_SCOPE)] | ((has("dir") == false) or ((.dir | tag) == "!!str"))' "$WORLDBUILDER_FILE" >/dev/null 2>&1; then
+      _error "Invalid dir for [$section]: expected a string"
+      failed=1
+      continue
+    fi
+    WB_SCOPE=$section yq -p "$format" -o yaml -r -0 '.[strenv(WB_SCOPE)].dir // ""' "$WORLDBUILDER_FILE" >"$tmp/dir"
+    IFS= read -r -d '' dir <"$tmp/dir"
+    if [[ -z "$dir" || ! -d "$dir" ]]; then
+      _warning "[$section] checkout directory is missing${dir:+: $dir}"
+      warnings=1
+      continue
+    fi
+    command -v git >/dev/null 2>&1 || continue
+    if [[ "$(git -C "$dir" rev-parse --is-inside-work-tree 2>/dev/null)" != true ]]; then
+      _warning "[$section] is not a Git checkout: $dir"
+      warnings=1
+      continue
+    fi
+    if [[ -n "$(git -C "$dir" rev-parse --show-cdup 2>/dev/null)" ]]; then
+      _warning "[$section] directory is inside a Git checkout, not its root: $dir"
+      warnings=1
+    fi
+    while IFS= read -r -d '' remote && IFS= read -r -d '' url; do
+      if ! actual=$(git -C "$dir" remote get-url -- "$remote" 2>/dev/null); then
+        _warning "[$section] missing remote: $remote"
+        warnings=1
+      elif [[ "$actual" != "$url" ]]; then
+        _warning "[$section] remote URL differs from config: $remote"
+        warnings=1
+      fi
+    done <"$tmp/remotes"
+  done <"$tmp/sections"
+  rm -rf "$tmp"
+
+  (( failed )) && return 1
+  if (( warnings )); then
+    echo "Environment and config checked with warnings."
+  else
+    echo "Environment and config look good."
+  fi
 }
 
 ###################################################################################################

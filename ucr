@@ -334,9 +334,11 @@ ucr solution create SID=<solution id> [BID=<business id>] [<options>] [domain]
     BID       Business Identifier (optional)
   Options:
     --m2                Create an M2 Connector type solution instead of application
+    --c2                Create a C2 Connector type solution instead of application
     --exchange=<ids>    Comma separated list of exchange ids to apply
     --auto              Fill exchange header with all services
 
+    --env=<json>        Set environment variables from a JSON object (values converted to strings)
     --file=<template>   Use a specific template name
     --github=<url>      Use a github repo as the template source
     --zip=<url>         Use a zip file url as the template source
@@ -345,8 +347,10 @@ EOF
 function ucr_spec_solution_create {
   reply=($'arg\t1\tdomain\toptional\tcompletion=freeform'
     $'opt\tm2\tflag'
+    $'opt\tc2\tflag'
     $'opt\texchange\tvalue\tcompletion=freeform'
     $'opt\tauto\tflag'
+    $'opt\tenv\tvalue\tcompletion=freeform'
     $'opt\tfile\tvalue\tcompletion=freeform'
     $'opt\tgithub\tvalue\tcompletion=freeform'
     $'opt\tzip\tvalue\tcompletion=freeform')
@@ -361,9 +365,14 @@ function ucr_solution_create {
   local domain=${1:-$default_domain}
   # Take UCR_DIS_URL, grab the domain from url, remove `pegasus-dispatcher.internal.` (may not have internal) that should give us a root
   # then `$SID.apps.$root` should be the domain for the new solution.
-  local type="application" # or m2connector
-  if [[ -n "$ucr_opts[m2]" ]]; then
+  local type="application"
+  if [[ -n "$ucr_opts[m2]" && "$ucr_opts[m2]" != false ]]; then
+    if [[ -n "$ucr_opts[c2]" && "$ucr_opts[c2]" != false ]]; then
+      echo "Options --m2 and --c2 cannot be combined" >&2; exit 2
+    fi
     type="m2connector"
+  elif [[ -n "$ucr_opts[c2]" && "$ucr_opts[c2]" != false ]]; then
+    type="c2connector"
   fi
   local template='{}'
   if [[ -n "$ucr_opts[file]" ]]; then
@@ -383,15 +392,26 @@ function ucr_solution_create {
     local services=$(ucr_service_installed | jq '[.items[].alias]|sort|join(",")' -r)
     exchangelist="X-exosite-exchange-id: $services"
   fi
+  local env_json='{}'
+  if [[ -v 'ucr_opts[env]' ]]; then
+    env_json=$(jq -sc 'if length == 1 and (.[0] | type == "object") then .[0] | map_values(tostring) else error("expected one object") end' <<< "${ucr_opts[env]}") || {
+      echo "Invalid JSON object for --env" >&2; exit 2
+    }
+  fi
 
-  local req=$(jq -n -c --arg type "$type" --arg domain "$domain" --argjson template "$template" '{
+  local req
+  req=$(jq -n -c --arg type "$type" \
+    --arg domain "$domain" \
+    --argjson template "$template" \
+    --argjson env "$env_json" \
+    '{
 				"name": $ENV.UCR_SID,
 				"domain": $domain,
 				"business_id": $ENV.UCR_BID,
 				"template": $type,
 				"services": [],
-				"env": {},
-			} + $template')
+				"env": $env,
+			} + $template') || { echo "Failed to build solution request" >&2; exit 2; }
 
   v_curl -s ${UCR_API_URL}/solution/${UCR_SID} \
     -H 'Content-Type: application/json' \

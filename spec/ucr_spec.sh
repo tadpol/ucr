@@ -1,3 +1,101 @@
+Describe 'ucr solution create'
+  UCR="$PWD/ucr"
+
+  It 'creates an application with the default domain and empty environment'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://pegasus-dispatcher.internal.example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --curl --dry
+    The status should be success
+    The stderr should include 'https://example.com/solution/test'
+    The stderr should include '{"name":"test","domain":"test.apps.example.com","business_id":"biz","template":"application","services":[],"env":{}}'
+  End
+
+  It 'uses the supplied domain, exchange ids, and file template'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create custom.example.com --exchange=one,two --file=example --curl --dry
+    The status should be success
+    The stderr should include 'X-exosite-exchange-id: one,two'
+    The stderr should include '"domain":"custom.example.com"'
+    The stderr should include '"source":{"from":"file","path":"/tmp/solution-templates/example"}'
+  End
+
+  It 'uses a GitHub template source'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --github=https://example.com/repo --curl --dry
+    The status should be success
+    The stderr should include '"source":{"from":"github","url":"https://example.com/repo"}'
+  End
+
+  It 'uses a zip template source'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --zip=https://example.com/template.zip --curl --dry
+    The status should be success
+    The stderr should include '"source":{"from":"zip","url":"https://example.com/template.zip"}'
+  End
+
+  It 'creates an M2 connector'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --m2 --curl --dry
+    The status should be success
+    The stderr should include '"template":"m2connector"'
+  End
+
+  It 'creates a C2 connector with stringified environment values'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --c2 --env='{"text":"hello","number":42,"bool":false,"nested":{"a":1}}' --curl --dry
+    The status should be success
+    The stderr should include '"template":"c2connector"'
+    The stderr should include '"env":{"text":"hello","number":"42","bool":"false","nested":"{\"a\":1}"}'
+  End
+
+  It 'does not select disabled connector flags'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --no-m2 --c2=false --curl --dry
+    The status should be success
+    The stderr should include '"template":"application"'
+  End
+
+  It 'selects C2 when M2 is disabled'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --no-m2 --c2 --curl --dry
+    The status should be success
+    The stderr should include '"template":"c2connector"'
+  End
+
+  It 'rejects conflicting connector flags'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --m2 --c2 --curl --dry
+    The status should equal 2
+    The stderr should include 'Options --m2 and --c2 cannot be combined'
+    The stderr should not include 'curl -s'
+  End
+
+  It 'rejects a malformed environment'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --env='{bad}' --curl --dry
+    The status should equal 2
+    The stderr should include 'Invalid JSON object for --env'
+    The stderr should not include 'curl -s'
+  End
+
+  It 'rejects an array environment'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --env='[]' --curl --dry
+    The status should equal 2
+    The stderr should include 'Invalid JSON object for --env'
+    The stderr should not include 'curl -s'
+  End
+
+  It 'rejects an empty environment argument'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --env= --curl --dry
+    The status should equal 2
+    The stderr should include 'Invalid JSON object for --env'
+    The stderr should not include 'curl -s'
+  End
+
+  It 'rejects multiple environment objects'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --env='{} {}' --curl --dry
+    The status should equal 2
+    The stderr should include 'Invalid JSON object for --env'
+    The stderr should not include 'curl -s'
+  End
+
+  It 'stops when the solution request cannot be built'
+    When call env UCR_API_URL=https://example.com UCR_DIS_URL=https://example.com UCR_SID=test UCR_BID=biz zsh "$UCR" solution create --file='bad"name' --curl --dry
+    The status should equal 2
+    The stderr should include 'Failed to build solution request'
+    The stderr should not include 'curl -s'
+  End
+End
+
 Describe 'ucr device list'
   UCR="$PWD/ucr"
 
